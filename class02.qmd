@@ -1,0 +1,793 @@
+---
+title: "431 Class 02"
+author: Thomas E. Love, Ph.D.
+date: "2024-08-29"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 02 | 2024-08-29 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Instructions for the Quick Survey
+
+Please read these instructions **before** writing.
+
+1.  Introduce yourself to someone that you don't know.
+2.  Record the survey answers **for that other person**, while they record your responses.
+3.  Be sure to complete all 15 questions (both sides.)
+4.  When you are finished, thank your partner and raise your hand. Someone will come to collect your survey.
+
+Regarding Question 4, Professor Love is the large fellow standing in the front of the room.
+
+## Today's Agenda
+
+-   Data Structures and Variables
+    -   Evaluating some of the Quick Survey variables
+-   Looking at some of the data collected in Class 01
+    -   Group Guessing of Ages from 10 Photographs
+    -   Guessing Dr. Love's Age (twice)
+- Welcome to 431 Survey Report
+- What to work on this weekend
+
+## The R Packages I'll Load Today
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+library(rstanarm)
+library(easystats)
+library(tidyverse)
+
+source("c02/data/Love-431.R")
+
+knitr::opts_chunk$set(comment = NA)
+```
+
+-   If you actually run this in R, you will get some messages which we will suppress and ignore today.
+
+
+## Chatfield's Six Rules for Data Analysis
+
+1.  Do not attempt to analyze the data until you understand what is being measured and why.
+2.  Find out how the data were collected.
+3.  Look at the structure of the data.
+4.  Carefully examine the data in an exploratory way, before attempting a more sophisticated analysis.
+5.  Use your common sense at all times.
+6.  Report the results in a clear, self-explanatory way.
+
+::: aside
+Chatfield, Chris (1996) *Problem Solving: A Statistician's Guide*, 2nd ed.
+:::
+
+## Our Quick Survey
+
+![](c02/images/survey_form.png)
+
+## Types of Data
+
+The key distinction we'll make is between
+
+-   **quantitative** (numerical) and
+-   **categorical** (qualitative) information.
+
+Information that is quantitative describes a **quantity**.
+
+-   All quantitative variables have units of measurement.
+-   Quantitative variables are recorded in numbers, and we use them as numbers (for instance, taking a mean of the variable makes some sense.)
+
+## Continuous vs. Discrete Quantities
+
+**Continuous** variables (can take any value in a range) vs. **Discrete** variables (limited set of potential values)
+
+-   Is Height a continuous or a discrete variable?
+
+::: incremental
+-   Height is certainly continuous as a concept, but how precise is our ruler?
+-   Piano vs. Violin
+:::
+
+## Quantitative Variable Subtypes
+
+We can also distinguish **interval** (equal distance between values, but zero point is arbitrary) from **ratio** variables (meaningful zero point.)
+
+::: incremental
+-   Is Weight an interval or ratio variable?
+-   How about IQ?
+:::
+
+## Qualitative (Categorical) Data
+
+Qualitative variables consist of names of categories.
+
+-   Each possible value is a code for a category (could use numerical or non-numerical codes.)
+    -   **Binary** categorical variables (two categories, often labeled 1 or 0)
+    -   **Multi-categorical** variables (three or more categories)
+-   Can distinguish *nominal* (no underlying order) vs. *ordinal* (categories are ordered.)
+
+## Some Categorical Variables
+
+-   How is your overall health? <br /> (Excellent, Very Good, Good, Fair, Poor)
+-   Which candidate would you vote for if the election were held today?
+-   Did this patient receive this procedure?
+-   If you needed to analyze a small data set right away, which of the following software tools would you be comfortable using to accomplish that task?
+
+## Are these quantitative or categorical?
+
+1.  Do you **smoke**? (1 = Non-, 2 = Former, 3 = Smoker)
+2.  How much did you pay for your most recent **haircut**? (in \$)
+3.  What is your favorite **color**?
+4.  How many hours did you **sleep** last night?
+5.  Statistical thinking in your future **career**? (1 = Not at all important to 7 = Extremely important)
+
+-   If quantitative, are they *discrete* or *continuous*? Do they have a meaningful *zero point*?
+-   If categorical, how many categories? *Nominal* or *ordinal*?
+
+## Importing and Tidying Data
+
+![](c02/images/data-science-emphasize-import-and-tidy.PNG)
+
+## Ingesting the Quick Surveys
+
+![](c02/images/2023_setup.png)
+
+## The Quick Survey
+
+Over 10 years, 547 people took (essentially) the same survey in the same way.
+
+| Fall | 2023 | 2022 | 2021 | 2020 | 2019 | 
+|-----:|-----:|-----:|-----:|-----:|-----:|
+|  *n* |   53 |   54 |   58 |   67 |   61 | 
+
+
+| Fall | 2018 | 2017 | 2016 | 2015 | 2014 |   Total |
+|-----:|-----:|-----:|-----:|-----:|-----:|--------:|
+|  *n* |   51 |   48 |   64 |   49 |   42 | **547** |
+
+### Question
+
+About how many of those 547 surveys caused *no problems* in recording responses?
+
+## The 15 Survey Items
+
+|  \# | Topic          |  \# | Topic                    |
+|----:|----------------|----:|--------------------------|
+|  Q1 | `glasses`      |  Q9 | `lectures_vs_activities` |
+|  Q2 | `english`      | Q10 | `projects_alone`         |
+|  Q3 | `stats_so_far` | Q11 | `height`                 |
+|  Q4 | `guess_TL_ht`  | Q12 | `hand_span`              |
+|  Q5 | `smoke`        | Q13 | `color`                  |
+|  Q6 | `handedness`   | Q14 | `sleep`                  |
+|  Q7 | `stats_future` | Q15 | `pulse_rate`             |
+|  Q8 | `haircut`      |  \- | \-                       |
+
+-   At one time, I asked about `sex` rather than `glasses`.
+-   In prior years, people guessed my age, rather than height here.
+-   Sometimes, I've asked for a 30-second pulse check, then doubled.
+
+## Response to the Question I asked
+
+About how many of those 547 surveys caused *no problems* in recording responses?
+
+> -   Guesses?
+
+> -   196/547 (36%) caused no problems.
+
+## Guess My Age
+
+![](c02/images/q04a.png)
+
+![](c02/images/q04b.png)
+
+![](c02/images/q04c.png)
+
+What should we do in these cases?
+
+## English best language?
+
+![](c02/images/q02a.png)
+
+![](c02/images/q02b.png)
+
+![](c02/images/q02c.png)
+
+## Height
+
+![](c02/images/q11-issues.png)
+
+## Handedness Scale (2016-21 version)
+
+![](c02/images/q06b.png)
+
+## Favorite color
+
+![](c02/images/q13a.png)
+
+![](c02/images/q13b.png)
+
+![](c02/images/q13c.png)
+
+## Following the Rules? (2019 version)
+
+![](c02/images/q15a.png)
+
+### 2019 `pulse` responses, sorted (*n* = 61, 1 NA)
+
+```         
+ 33  46  48  56  60  60            3 | 3
+ 62  63  65  65  66  66            4 | 68
+ 68  68  68  69  70  70            5 | 6
+ 70  70  70  70  70  70            6 | 002355668889        
+ 71  72  72  74  74  74            7 | 00000000122444445666888
+ 74  74  75  76  76  76            8 | 000012445668
+ 78  78  78  80  80  80            9 | 000046
+ 80  81  82  84  84  85           10 | 44
+ 86  86  88  90  90  90           11 | 0
+ 90  94  96 104 104 110 
+```
+
+## Stem and Leaf: Pulse Rates 2014-2023
+
+![](c02/images/2014-2023_pulse_stem.png)
+
+(Thanks, John \color{red} **Tukey** \color{black})
+
+## Garbage in, garbage out ...
+
+![](c02/images/lastlineofdefense.png)
+
+# Group Age Guessing from Photos <br /> (13 groups, 10 Photos)
+
+## Photos 1-5
+
+![](c02/images/photos_2024_1_5.png)
+
+## Photos 6-10
+
+![](c02/images/photos_2024_6_10.png)
+
+## 2024 Groups 1-6: Guessing Ten Photos {.smaller}
+
+Group | Within 2 | Within 5 | Too Low | Correct | Too High | Beat AI
+:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:
+The Confident Interval | 3 | 5 | 1 | 1 | 8 | 6
+MAWC | 3 | 7 | 4 | 1 | 5 | 7
+The Renaissance Coders | 1 | 7 | 2 | 1 | 7 | 6
+R-rational | 2 | 6 | 5 | 1 | 4 | 7
+TVMB | 6 | 9 | 1 | 1 | 8 | 7
+Something Creative & Original | 2 | 5 | 5 | 1 | 4 | 5
+**AI** | 2 | 4 | 7 | 1 |  2 | --
+
+*These six groups (and the AI at <https://howolddoyoulook.com/>) each guessed one age correctly. The other seven groups are shown on the next slide.*
+
+## 2024 Groups 7-13: Ten Photos {.smaller}
+
+Group | Within 2 | Within 5 | Too Low | Correct | Too High | Beat AI
+:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:
+Baked Split | 4 | 8 | 3 | 0 | 7 | 6
+Pineapple Pizza | 4 | 8 | 5 | 0 | 5 | 7
+CWRU Crew | 4 | 4 | 5 | 0 | 5 | 6
+Statasaurous rex | 2 | 6 | 3 | 0 | 7 | 5
+Tukey 60 | 3 | 8 | 4 | 0 | 6 | 5
+Beat the Curve | 0 | 5 | 4 | 0 | 6 | 5
+Stats Avengers | 4 | 6 | 3 | 0 | 7 | 5
+
+-   So ... who wins?
+-   What other summaries might be helpful?
+
+## Error Distribution, Groups 1-6 {.smaller}
+
+| Group | Mean Error | SD (Errors) | Median Error | (Min, Max) Error |
+|:----------:|:--------:|:--------:|:--------:|:--------:|
+The Confident Interval | 5 | 7.3 | 3 | -8, 16
+MAWC | 1 | 7 | 1 | -11, 14
+The Renaissance Coders | 2.6 | 6.1 | 4 | -9, 13
+R-rational | 0.8 | 5.6 | -1 | -6, 10
+TVMB | 2 | 2.5 | 1 | -2, 7
+Something Creative and Original | -0.2 | 6.2 | -0.5 | -8, 8
+**AI** | -5 | 7.3 | -5.5 | -15, 6
+
+## Error Distribution, Groups 7/13 {.smaller}
+
+| Group | Mean Error | SD (Errors) | Median Error | (Min, Max) Error |
+|:----------:|:--------:|:--------:|:--------:|:--------:|
+Baked Split | 3.4 | 5.7 | 2 | -3, 14
+Pineapple Pizza | 1 | 6.3 | 0.5 | -6, 16
+CWRU Crew | -2 | 7.3 | 0 | -13, 9
+Statasaurous rex | 1.8 | 5.7 | 4 | -10, 8
+Tukey 60 | 2.1 | 6.3 | 1 | -5, 16
+Beat the Curve | 2 | 7.5 | 3.5 | -8, 13
+Stats Avengers | 1.9 | 9.4 | 3 | -21, 15
+
+-   How helpful are these summaries in this setting?
+- Should we be looking at |error| or maybe squared error?
+
+## Absolute and Squared Errors (first 6) {.smaller}
+
+- **AE** = Absolute Value of Error = \|guess - actual\|
+- **RMSE** = square Root of Mean Squared Error
+
+Group         | Mean AE | Range (AE) | Median AE | RMSE 
+:--------------------:|--------:|:----------:|----------:|-----:
+The Confident Interval|6.6|0, 16|5.5|8.5
+MAWC|5.2|0, 14|3.5|6.7
+The Renaissance Coders|5.4|0, 13|4.5|6.3
+R-rational|4.6|0, 10|4.5|5.3
+TVMB|2.4|0, 7|1.5|3.1
+Something Creative and Original|5.2|0, 8|5.5|5.9
+**AI** | 7 | 0, 15 | 6 |8.5
+
+## Absolute and Squared Errors (7-13) {.smaller}
+
+- **AE** = Absolute Value of Error = \|guess - actual\|
+- **RMSE** = square Root of Mean Squared Error
+
+Group         | Mean AE | Range (AE) | Median AE | RMSE 
+:--------------------:|--------:|:----------:|----------:|-----:
+Baked Split|4.4|1, 14|3|6.4
+Pineapple Pizza|4.4|1, 16|3|6
+CWRU Crew|5.8|1, 13|6|7.2
+Statasaurous rex|5.2|2, 10|5|5.7
+Tukey 60|4.7|1, 16|4|6.4
+Beat the Curve|6.6|3, 13|5.5|7.4
+Stats Avengers|6.5|1, 21|4|9.1
+**AI** | 7|0, 15|6|8.5
+
+-   So ... now who wins?
+
+## Importing guesses from 2014-2024
+
+```{r}
+#| echo: true
+
+photos <- 
+  read_csv("c02/data/ten-photo-age-history-2024.csv",
+           show_col_types = F)
+
+photos <- photos |>
+  mutate(label = fct_reorder(label, card))
+
+head(photos)
+```
+
+## 2014-2024 Errors
+
+```{r}
+#| echo: false
+ggplot(photos |> filter(year != "2024_AI" & year != "2024"), aes(x = label, y = error)) +
+  geom_point(aes(col = year, fill = year), size = 3) +
+  geom_point(data = photos |> filter(year == "2024"), aes(x = label, y = error), col = "black", shape = "X", size = 7) +
+  geom_hline(yintercept = 0) +
+  labs(title = "2014-2023 error sizes as compared to 2024", 
+       subtitle = "Black X indicates 2024 class-wide result",
+       x = "",
+       y = "Guessing Error") +
+  theme_light()
+```
+
+# Guessing My Age (Twice) <br /> from Class 01
+
+## From our 431-Data Page: A `.csv` file
+
+I've placed `love-age-guesses-2022-2024.csv` on our 431-data page. This includes guesses from 2022-2024.
+
+![](c02/images/age_guess_sheet.png)
+
+## Creating the `age_guess` Tibble
+
+Clicking on RAW in the 431-data presentation takes us to a (long) URL that contains the raw data in this sheet.
+
+I'll read in the sheet's data to a new tibble (a special kind of R data frame) called `age_guess` using the `read_csv()` function. 
+
+```{r}
+#| echo: true
+
+url_age <- 
+  "https://raw.githubusercontent.com/THOMASELOVE/431-data/main/data/love-age-guesses-2022-2024.csv"
+
+age_guess <- read_csv(url_age, show_col_types = FALSE)
+```
+
+## The `age_guess` tibble
+
+What do we get?
+
+```{r}
+#| echo: true
+
+age_guess
+```
+
+## How many guesses in each year?
+
+```{r}
+#| echo: true
+
+age_guess |> count(year)
+```
+
+
+How many first guesses in each year were less than 57.5?
+
+```{r}
+#| echo: true
+
+age_guess |> count(year, guess1 < 57.5)
+```
+
+
+## What do the `guess1` values look like?
+
+```{r}
+#| echo: true
+age_guess |> 
+  select(guess1) |> 
+  arrange(guess1) 
+```
+
+## Plot the `guess1` values?
+
+```{r}
+#| echo: true
+#| output-location: column
+ggplot(data = age_guess, 
+       aes(x = guess1)) +
+  geom_dotplot(binwidth = 1)
+```
+
+## Can we make a histogram?
+
+```{r}
+#| echo: true
+#| output-location: column
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram()
+```
+
+## Improving the Histogram, 1
+
+```{r}
+#| echo: true
+#| output-location: column
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram(bins = 10) 
+```
+
+## Improving the Histogram, 2
+
+```{r}
+#| echo: true
+#| output-location: column
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram(bins = 10, 
+        col = "yellow")
+```
+
+## Improving the Histogram, 3
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram(bins = 10, 
+       col = "white", 
+       fill = "blue")
+```
+
+## Improving the Histogram, 4
+
+Change theme, specify bin width rather than number of bins
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram(binwidth = 2, 
+       col = "white", fill = "blue") +
+  theme_bw()
+```
+
+## Improving the Histogram, 5
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram(binwidth = 2, 
+       col = "white", fill = "blue") +
+  theme_bw() +
+  labs(
+    x = "First Guess of Dr. Love's Age",
+    y = "Fall 2022-2024 431 students")
+```
+
+## Add title and subtitle (ver. 6)
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram(binwidth = 2, 
+       col = "white", fill = "blue") +
+  theme_bw() +
+  labs(
+    x = "First Guess of Dr. Love's Age",
+    y = "Fall 2022-2024 431 students",
+    title = "Pretty wide range of guesses",
+    subtitle = "Dr. Love's Actual Age = 55.5 in 2022, 57.5 in 2024")
+```
+
+## Improving the Histogram, 7
+
+Add a vertical line at 57.5 years to show my actual age.
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(age_guess, 
+       aes(x = guess1)) +
+  geom_histogram(binwidth = 2, 
+       col = "white", fill = "blue") +
+  geom_vline(aes(xintercept = 56), col = "red") +
+  theme_bw() +
+  labs(
+    x = "First Guess of Dr. Love's Age",
+    y = "Fall 2022-2024 431 students",
+    title = "Pretty wide range of guesses",
+    subtitle = "Dr. Love's Actual Age = 55.5 in 2022, 57.5 in 2024")
+```
+
+
+## In which year did I look older?
+
+Create three *facets*, for 2022, 2023 and 2024 guesses...
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(age_guess, 
+       aes(x = guess1, fill = factor(year))) +
+  geom_histogram(binwidth = 2, col = "white") +
+  theme_bw() +
+  facet_grid(year ~ .) +
+  labs(
+    x = "First Guess of Dr. Love's Age",
+    y = "# of Students",
+    title = "Distribution of guesses over the past three years",
+    subtitle = "Dr. Love's Actual Age = 55.5 in 2022, 57.5 in 2024")
+```
+
+## Numerical Summary 
+
+```{r}
+#| echo: true
+age_guess |> select(student, guess1, guess2, year) |> summary()
+```
+
+> -   Was the average guess closer on guess 1 or 2?
+> -   What was the range of first guesses? Second guesses?
+> -   What does the `NA's : 3` mean in `guess2`?
+> -   Why is `student` not summarized any further?
+
+## Let's Focus on 2024 guesses
+
+```{r}
+#| echo: true
+
+age_24 <- age_guess |>
+  filter(year == "2024")
+
+age_24
+```
+
+## First Guesses in 2024
+
+```{r}
+#| echo: true
+age_24 |> select(guess1) |> table()
+```
+
+### Simple Stem-and-Leaf
+
+```
+4 | 4
+4 | 56778
+5 | 00001223334
+5 | 5555566666777888888999999
+6 | 0000122234
+6 | 5567
+```
+
+```{r}
+#| echo: true
+age_24 |> select(guess1) |> summary()
+```
+
+
+
+
+## Summarizing 2024 Guesses {.smaller}
+
+```{r}
+#| echo: true
+describe_distribution(age_24 |> select(guess1, guess2), ci = 0.90)
+```
+
+- Mean = sum of values divided by number of values
+- Standard Deviation = square root of variance, measure of variation
+- IQR = difference between 75th and 25th percentiles
+- 90% confidence interval for mean estimated via bootstrap
+- Range = minimum and maximum values
+- n = sample size
+- n_Missing = # of missing values
+
+## Summarizing 2024 Guesses {.smaller}
+
+```{r}
+#| echo: true
+describe_distribution(age_24 |> select(guess1, guess2), 
+                      centrality = "median", ci = 0.90, 
+                      range = FALSE, quartiles = TRUE)
+```
+
+- Median = 50th percentile (middle value when data are sorted)
+- 90% CI here is a bootstrap 90% confidence interval for the median
+- MAD = median absolute deviation (scaled to take the same value as the standard deviation when the data are Normally distributed)
+- Quartiles = 25th and 75th percentiles
+
+
+## Summarizing 2024 Guesses
+
+-   Using the `lovedist()` function from the `Love-431.R` script
+
+```{r}
+#| echo: true
+age_24 |>
+  reframe(lovedist(guess1)) 
+
+age_24 |>
+  reframe(lovedist(guess2)) 
+```
+
+## How did guesses change in 2024?
+
+-   Did your guesses decrease / stay the same / increase?
+-   Calculate guess2 - guess1 and examine its sign.
+
+```{r}
+#| echo: true
+age_guess |> 
+  filter(year == "2024") |>
+  count(sign(guess2 - guess1))
+```
+
+## How much did guesses change in 2024?
+
+Create new variable (change = guess2 - guess1)
+
+```{r}
+#| echo: true
+age_guess <- age_guess |>
+  mutate(change = guess2 - guess1)
+
+age_guess |> filter(year == "2024") |> select(change) |> summary()
+```
+
+## Histogram of Guess Changes
+
+What will this look like?
+
+```{r}
+#| echo: true
+#| warning: false
+#| message: false
+#| output-location: slide
+ggplot(data = age_guess, aes(x = change)) +
+  geom_histogram(binwidth = 2, fill = "royalblue", col = "yellow") + 
+  theme_bw() +
+  labs(x = "Change from first to second guess",
+       y = "Students in 431 for Fall 2022-2024",
+       title = "Most stayed close to their first guess.")
+```
+
+
+## Guess 1 vs. Guess 2 Scatterplot
+
+```{r}
+#| echo: true
+ggplot(data = age_guess, aes(x = guess1, y = guess2)) +
+  geom_point() 
+```
+
+## Filter to complete cases, and add regression line
+
+```{r}
+#| echo: true
+#| output-location: slide
+temp <- age_guess |>
+  filter(complete.cases(guess1, guess2))
+
+ggplot(data = temp, aes(x = guess1, y = guess2)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, col = "purple")
+```
+
+## What is that regression line?
+
+```{r}
+#| echo: true
+lm(guess2 ~ guess1, data = age_guess)
+```
+
+-   Note that `lm` filters to complete cases by default.
+
+## Bayesian linear regression instead?
+
+```{r}
+#| echo: true
+set.seed(431)
+stan_glm(guess2 ~ guess1, data = age_guess, refresh = 0)
+```
+
+## How about a loess smooth curve?
+
+```{r}
+#| echo: true
+#| output-location: slide
+temp <- age_guess |>
+  filter(complete.cases(guess1, guess2))
+
+ggplot(data = temp, aes(x = guess1, y = guess2)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, col = "blue") +
+  theme_bw()
+```
+
+## Add y = x line (no change in guess)?
+
+```{r}
+#| echo: true
+#| output-location: slide
+temp <- age_guess |>
+  filter(complete.cases(guess1, guess2))
+
+ggplot(data = temp, aes(x = guess1, y = guess2)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, col = "blue") +
+  geom_abline(intercept = 0, slope = 1, col = "red") +
+  theme_bw()
+```
+
+## 2024 Data, With Better Labels
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(data = temp |> filter(year == "2024"), aes(x = guess1, y = guess2)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, col = "blue") +
+  geom_abline(intercept = 0, slope = 1, col = "red") +
+  geom_text(x = 47, y = 45, label = "y = x", col = "red") +
+  labs(x = "First Guess of Love's Age",
+       y = "Second Guess of Love's Age",
+       title = "Student Guesses of Dr. Love's Age in 2024",
+       subtitle = "Love's actual age = 57.5 in 2024") +
+  theme_bw()
+```
+
+# OK. That's it for the slides. Back to [the Class 02 README](https://github.com/THOMASELOVE/431-classes-2024/tree/main/class02).

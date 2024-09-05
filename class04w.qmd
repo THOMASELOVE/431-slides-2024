@@ -1,0 +1,628 @@
+---
+title: "431 Class 04"
+author: "https://thomaselove.github.io/431-2024/"
+date: "2024-09-05"
+format:
+  docx:
+    highlight-style: github
+---
+
+## Today's Agenda
+
+- Build on where we left off in Class 03 in studying the 15-item Quick Survey.
+- Demonstrate techniques and code that might be helpful for Lab 1, due next Wednesday 2024-09-11 at noon.
+
+## Load packages and set theme
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+library(patchwork)
+library(rstanarm)   ## new today
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(comment = NA)
+
+source("c04/data/Love-431.R") ## new today
+```
+
+We're sourcing in the `Love-431.R` R script, which contains a function we'll use.
+
+## Ingest, manage data
+
+Read in data from `.csv` (comma-separated version) file.
+
+```{r}
+#| echo: true
+quicksur_raw <- 
+  read_csv("c04/data/quick_survey_2024.csv", show_col_types = FALSE) |>
+  janitor::clean_names()
+```
+
+Select variables, make categories into factors
+
+```{r}
+#| echo: true
+qsdat <- quicksur_raw |>
+    select(student, year, english, smoke, pulse, height_in, haircut) |>
+    mutate(year = as_factor(year),
+           smoke = as_factor(smoke),
+           english = as_factor(english),
+           student = as.character(student))
+```
+
+
+
+## Resulting tibble
+
+```{r}
+#| echo: true
+qsdat
+```
+
+## Today's Questions
+
+2. Does the distribution of student heights change over time?
+3. Is the Normal distribution a good model for student heights? How about student haircut prices?
+4. Do taller people appear to have paid less for their most recent haircut?
+5. Do students have a more substantial tobacco history if they prefer to speak English or a language other than English?
+
+## Are there differences in student height by year?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dat1 <- qsdat |>
+    filter(complete.cases(height_in)) 
+
+ggplot(data = dat1, aes(x = year, y = height_in)) +
+    geom_boxplot() +
+    labs(title = "Heights of Dr. Love's students, by year",
+         subtitle = "2014 - 2024", x = "Year", y = "Height (in inches)")
+```
+
+## What does the boxplot show?
+
+- Median = thick line inside the box
+- Quartiles (25th and 75th percentiles) form the edges of the box
+- Whiskers extend out to the most extreme non-outliers
+- Candidate outliers identified through Tukey's fences...
+    - Q1 - 1.5 IQR and Q3 + 1.5 IQR, where IQR = inter-quartile range is Q3 - Q1
+    - IQR = length of the "box" in the boxplot
+
+## Adding Means to the Boxplot
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dat1 <- qsdat |>
+    filter(complete.cases(height_in)) 
+
+ggplot(data = dat1, aes(x = year, y = height_in)) +
+    geom_boxplot() +
+    stat_summary(fun = mean, geom = "point", 
+                 shape = 16, size = 3, col = "red") +
+    labs(title = "Heights of Dr. Love's students, by year",
+         subtitle = "2014 - 2024", x = "Year", y = "Height (in inches)")
+```
+
+
+## Adding a Violin to the Boxplot
+
+- When we'd like to better understand the shape of a distribution, we can amplify the boxplot.
+
+```{r}
+#| echo: true
+#| output-location: slide
+dat1 <- qsdat |>
+    filter(complete.cases(height_in))
+
+ggplot(data = dat1, aes(x = year, y = height_in)) +
+    geom_violin() +
+    geom_boxplot(aes(fill = year), width = 0.3) +
+    guides(fill = "none") +
+    scale_fill_viridis_d(alpha = 0.3) +
+    labs(title = "Heights of Dr. Love's students, by year",
+         subtitle = "2014 - 2024", x = "Year", y = "Height (in inches)")
+```
+
+## Boxplot with Violin
+
+- How did we change the boxplot when we added the violin?
+- What would happen if we added the boxplot first and the violin second?
+- What does `guides(fill = "none")` do?
+- What does `scale_fill_viridis_d(alpha = 0.3)` do?
+
+## Summary Statistics for Student Height, 2014-2024  {.smaller}
+
+```{r}
+#| echo: true
+
+qsdat |> describe_distribution(height_in)
+qsdat |> describe_distribution(height_in, centrality = "median")
+```
+
+## Use my `lovedist()` function from the `Love-431.R` script... {.smaller}
+
+```{r}
+#| echo: true
+qsdat |> reframe(lovedist(height_in)) |> print_md(digits = 2)
+```
+
+- n = sample size, miss = missing values
+- mean = arithmetic average (sum of values / number of values)
+- sd = standard deviation (measures dispersion)
+- med = median (50th percentile)
+- mad = median absolute deviation (scaled measure of dispersion)
+- min, q25, q75, max = 0th, 25th, 75th and 100th percentile
+
+## `lovedist()` results by year
+
+```{r}
+#| echo: true
+
+qsdat |> group_by(year) |> reframe(lovedist(height_in))
+```
+
+
+## Question 3 
+
+Are the data on student heights in 2024 well described by a Normal distribution? How about haircut prices?
+
+- Can we use a mean and standard deviation to describe the center and spread of the data effectively?
+- Can we estimate a population mean accurately using our sample of data?
+
+## Histogram of 2024 Student Heights
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dat2 <- qsdat |>
+  filter(complete.cases(height_in)) |>
+  filter(year == "2024")
+
+ggplot(data = dat2, aes(x = height_in)) +
+    geom_histogram(fill = "salmon", col = "yellow", binwidth = 1) +
+    labs(title = "Heights of Dr. Love's students",
+         subtitle = "2024 (n = 54 students with height data)",
+         y = "Number of Students", x = "Height (inches)")
+```
+
+- How did we use the two `filter()` statements?
+- Why might I have changed from specifying `bins` to `binwidth` here?
+
+## Add Normal curve to our histogram?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+bw = 1 # specify width of bins in histogram
+
+ggplot(dat2, aes(height_in)) +
+  geom_histogram(binwidth = bw, 
+                 fill = "salmon", col = "yellow") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(dat2$height_in, na.rm = TRUE),
+          sd = sd(dat2$height_in, na.rm = TRUE)) *
+      length(dat2$height_in) * bw,  
+    geom = "area", alpha = 0.3, fill = "lightblue", col = "blue") +
+  labs(title = "Heights of Dr. Love's students",
+       subtitle = "2024 (n = 54 students with height data)",
+       y = "Number of Students", x = "Height (inches)",
+       caption = "with superimposed Normal curve")
+```
+
+## Histogram of Haircut Prices (2024)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dat3 <- qsdat |> filter(complete.cases(haircut), year == "2024")
+
+bw = 5 # specify width of bins in histogram
+
+ggplot(dat3, aes(haircut)) +
+  geom_histogram(binwidth = bw, 
+                 fill = "forestgreen", col = "white") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(dat3$haircut, na.rm = TRUE),
+          sd = sd(dat3$haircut, na.rm = TRUE)) *
+      length(dat3$haircut) * bw,  
+    geom = "area", alpha = 0.3, fill = "grey80", col = "black") +
+  labs(title = "Haircut Prices for Dr. Love's students",
+       subtitle = "2024 (n = 53 students with haircut data)",
+       y = "Number of Students", x = "Haircut Price ($)",
+       caption = "with superimposed Normal curve")
+```
+
+## 2024 Student Data: Key Summaries
+
+```{r}
+#| echo: true
+dat2 <- qsdat |> filter(complete.cases(height_in), year == "2024")
+
+dat2 |> reframe(lovedist(height_in))
+
+dat3 <- qsdat |> filter(complete.cases(haircut), year == "2024")
+
+dat3 |> reframe(lovedist(haircut))
+```
+
+- Which measure's center is reasonably well summarized by its mean?
+
+## A Normal distribution
+
+This is a Normal (or Gaussian) distribution with mean 150 and standard deviation 30.
+
+![](c04/images/khan_normal.png)
+
+- A Normal distribution is completely specified by its mean and standard deviation. The "bell shape" doesn't change.
+
+## Summarizing Quantitative Data
+
+If the data followed a Normal model, 
+
+- we would be justified in using the sample **mean** to describe the center, and
+- in using the sample **standard deviation** to describe the spread (variation.)
+
+But it is often the case that these measures aren't robust enough, because the data show meaningful skew (asymmetry), or the data have lighter or heavier tails than a Normal model would predict.
+
+## The Empirical Rule for Approximately Normal Distributions 
+
+If the data followed a Normal distribution,
+
+- approximately 68% of the data would be within 1 SD of the mean, 
+- approximately 95% of the data would be within 2 SD of the mean, while 
+- essentially all (99.7%) of the data would be within 3 SD of the mean.
+
+## 2024 Student Heights
+
+```{r}
+#| echo: true
+
+dat2 <- qsdat |> filter(complete.cases(height_in), year == "2024")
+
+nrow(dat2); mean(dat2$height_in); sd(dat2$height_in)
+```
+
+In 2024, we had 54 students whose `height_in` was available, with mean 67.2 inches (170.7 cm) and standard deviation 3.7 inches (9.4 cm).
+
+## Checking the 1-SD Empirical Rule
+
+- Of the 54 students in 2024 with heights, how many were within 1 SD of the mean?
+  - Mean = 67.2, SD = 3.7.
+  - 67.2 - 3.7 = 63.5 inches and 67.2 + 3.7 = 70.9 inches
+
+```{r}
+#| echo: true
+
+qsdat |> filter(complete.cases(height_in), year == "2024") |>
+    count(height_in >= 63.5 & height_in <= 70.9)
+
+37/(37+17)
+```
+
+## Empirical Rule Table for 2024 data {.smaller}
+
+- $\bar{x}$ = sample mean, $s$ = sample SD
+- For `height_in`: $n$ = 54 with data, $\bar{x} = 67.2, s = 3.7$
+- For `haircut`: $n$ = 53 with data, $\bar{x} = 37.9, s = 38.2$
+
+Range | "Normal" | `height_in` | `haircut`
+:----: | :---: | :-----: | :-------:
+$\bar{x} \pm s$ | ~68% | $\frac{37}{54}$ = 68.5% | $\frac{49}{53}$ = 92.4%  
+$\bar{x} \pm 2\times s$ | ~95% | $\frac{53}{54}$ = 98.1% |  $\frac{50}{53}$ = 94.3% 
+$\bar{x} \pm 3\times s$ | ~99.7% | $\frac{54}{54}$ = 100% | $\frac{51}{53}$ = 96.2% 
+
+::: {.callout-note}
+I calculated these fractions offline. Those calculations aren't included in the R code for these slides.
+:::
+
+## Boxplots of Height and Haircut Prices
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dat2 <- qsdat |> filter(complete.cases(height_in), year == "2024")
+
+p2 <- ggplot(data = dat2, aes(y = "height (inches)", x = height_in)) +
+  geom_violin() + geom_boxplot(width = 0.3, fill = "tomato") +
+  labs(title = "Boxplot of 2024 Student Heights", y = "")
+
+dat3 <- qsdat |> filter(complete.cases(haircut), year == "2024")
+
+p3 <- ggplot(data = dat3, aes(y = "haircut ($)", x = haircut)) +
+  geom_violin() + geom_boxplot(width = 0.3, fill = "dodgerblue") +
+  labs(title = "Boxplot of 2024 Haircut Prices", y = "")
+
+p2 / p3 + 
+  plot_annotation(title = "2024 Quick Survey Data")
+```
+
+- What is `width = 0.3` doing? How about the `y` options?
+- What am I doing with `p2 / p3 + plot_annotation`?
+- What should this look like?
+
+## Mean/SD vs. Median/MAD {.smaller}
+
+If the data are approximately Normally distributed (like `height_in` and `pulse`) we can safely use the sample mean and standard deviation as summaries. If not "Normal", then ... 
+
+- The median is a more robust summary of the center.
+- For spread, try the median absolute deviation (scaled to equal the standard deviation if the data are Normal)
+
+Measure | Median | Mean | MAD | Std. Dev.
+-------: | ----: | ----: | ----: | ----:
+height_in | 67 | 67.2 | 4.5 | 3.7
+haircut | 30 | 37.9 | 22.2 | 38.2
+
+## Making Estimates from our Sample
+
+One estimate of the average height of all students who study at CWRU could come from our samples of data from my classes. 
+
+```{r}
+#| echo: true
+
+dat1 <- qsdat |> filter(complete.cases(height_in))
+
+dat1 |> reframe(lovedist(height_in))
+```
+
+Our **point estimate** for the mean of the population of all CWRU students is the mean from our sample of `r nrow(dat1)` students, which is `r round_half_up(mean(dat1$height_in),1)` inches. How much uncertainty is there in that estimate?
+
+## Uncertainty Interval for a Mean
+
+We'll run a linear model (using only an intercept term) to obtain a 95% uncertainty (confidence) interval for the population mean using our data...
+
+```{r}
+#| echo: true
+#| message: true
+mod1 <- lm(height_in ~ 1, data = dat1)
+
+model_parameters(mod1, ci = 0.95)
+```
+
+Our 95% uncertainty interval (confidence interval) is (66.9, 67.5) inches for the true mean height across the entire population of CWRU students.
+
+## Haircuts in 2024?
+
+The problem with the haircut price data in 2024 is that it doesn't follow a Normal distribution, so it's more difficult to describe the center of the data using a sample mean...
+
+```{r}
+#| echo: true
+#| message: true
+
+dat3 <- qsdat |> filter(complete.cases(haircut), year == "2024")
+
+mod_haircut <- lm(haircut ~ 1, data = dat3)
+
+model_parameters(mod_haircut, ci = 0.95)
+```
+
+- How wide is this interval compared to the one for heights?
+
+## Question 4
+
+Do tall people pay less for haircuts?
+
+- Why might we think that they do, before we see the data?
+- Convert our student heights from inches to centimeters...
+
+```{r}
+#| echo: true
+
+qsdat <- qsdat |> mutate(height_cm = height_in * 2.54)
+
+qsdat |> select(student, height_in, height_cm) |> head()
+```
+
+## A First Scatterplot
+
+- We'll include the straight line from a linear model, in red.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dat4 <- qsdat |> filter(complete.cases(height_cm, haircut)) 
+
+ggplot(dat4, aes(x = height_cm, y = haircut)) +
+    geom_point(alpha = 0.3) + 
+    geom_smooth(method = "lm", col = "red",
+                formula = y ~ x, se = TRUE) +
+    labs(x = "Height (in cm)",
+         y = "Price of last haircut (in $)",
+         title = "Do taller people pay less for haircuts?")
+```
+
+## What is the straight line regression model?
+
+```{r}
+#| echo: true
+dat4 <- qsdat |> filter(complete.cases(height_cm, haircut)) 
+
+mod4 <- lm(haircut ~ height_cm, data = dat4)
+
+mod4
+```
+
+## Summarizing our model `mod1`
+
+```{r}
+#| echo: true
+model_parameters(mod4)
+```
+
+Regression Equation is:
+
+$$
+haircut = 113.46 - 0.48 (height_{cm}) + error
+$$
+
+Our predicted `haircut` price for someone who is 170 cm (about 5 feet 7 inches) tall is...
+
+$$
+haircut = 113.46 - 0.48 (170) = $31.86
+$$
+
+## Interpreting the Model
+
+Again, our regression Equation is:
+
+$$
+haircut = 113.46 - 0.48 (height_{cm}) + error
+$$
+
+- The intercept suggests that a student who is 0 cm tall has an average haircut price of $113.46, although we don't have any students in the data whose height is anywhere near as small as 0 cm, so this isn't very useful.
+- The slope is more important. When comparing two students who differ by 1 cm in height, we observe a haircut price that is, on average, $0.48 smaller for the student with the larger (taller) height.
+
+## `lm` fit vs. `loess` smooth curve?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dat4 <- qsdat |> filter(complete.cases(height_cm, haircut)) 
+
+ggplot(dat4, aes(x = height_cm, y = haircut)) +
+    geom_point(alpha = 0.5) + 
+    geom_smooth(method = "lm", col = "red",
+                formula = y ~ x, se = FALSE) +
+    geom_smooth(method = "loess", col = "blue",
+                formula = y ~ x, se = FALSE) +
+    labs(x = "Height (in cm)",
+         y = "Price of last haircut (in $)",
+         title = "Do taller people pay less for haircuts?")
+```
+
+- Does a linear model appear to fit these data well?
+- Do taller people pay less for their haircuts?
+
+## What is the (Pearson) correlation of height and haircut price?
+
+```{r}
+#| echo: true
+dat4 <- qsdat |> filter(complete.cases(height_cm, haircut)) 
+
+dat4 |> 
+    select(height_in, height_cm, haircut) |>
+    cor() 
+```
+
+
+## Question 5
+
+Do students have a more substantial tobacco history if they prefer to speak English or a language other than English?
+
+```{r}
+#| echo: true
+qsdat |> count(english, smoke)
+```
+
+`smoke` codes (tobacco use): 1 = Never, 2 = Former, 3 = Current
+
+
+## Restrict ourselves to 2024 data
+
+- Do students in the 2024 class have a more substantial history of tobacco use if they prefer to speak a language other than English?
+
+```{r}
+#| echo: true
+dat5 <- qsdat |> 
+    filter(year == "2024") |>
+    filter(complete.cases(english, smoke)) |>
+    select(student, year, english, smoke)
+summary(dat5)
+```
+
+## Tabulating the categorical variables individually
+
+```{r}
+#| echo: true
+dat5 |> tabyl(english)
+
+dat5 |> tabyl(smoke) |> adorn_pct_formatting()
+```
+
+- What does `adorn_pct_formatting()` do?
+
+## Cross-Classification </br > (2 rows $\times$ 3 columns)
+
+```{r}
+#| echo: true
+dat5 |> tabyl(english, smoke)
+```
+
+## Recode the `smoke` levels to more meaningful names in `tobacco`
+
+```{r}
+#| echo: true
+dat5 <- dat5 |> 
+    mutate(tobacco = fct_recode(smoke, 
+            "Never" = "1", "Quit" = "2", "Current" = "3"))
+```
+
+### Check our work?
+
+```{r}
+#| echo: true
+dat5 |> count(smoke, tobacco)
+```
+
+- Everyone with `smoke` = 1 has `tobacco` as Never, etc.
+
+## Restate the cross-tabulation 
+
+Now we'll use this new variable, and this time, add row and column totals.
+
+```{r}
+#| echo: true
+dat5 |> tabyl(english, tobacco) |> 
+    adorn_totals(where = c("row", "col"))
+```
+
+- What can we conclude about this association?
+
+## How about in 2014-2024?
+
+```{r}
+#| echo: true
+
+dat6 <- qsdat |> 
+  filter(complete.cases(english, smoke)) |>
+  mutate(tobacco = fct_recode(smoke, 
+            "Never" = "1", "Quit" = "2", "Current" = "3"))
+
+dat6 |> 
+  tabyl(english, tobacco) |> 
+  adorn_totals(where = c("row", "col"))
+```
+
+- Now, what is your conclusion?
+
+## Next Time
+
+Analyzing a (small) health dataset
+
+::: {.callout-note}
+
+By now, I've shown you everything you need to complete all Tasks for Lab 1.
+
+::: 
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```
+

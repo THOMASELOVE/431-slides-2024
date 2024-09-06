@@ -1511,7 +1511,7 @@ height_in |     67 | 4.45 |   6 | [57.00, 77.50] |     0.20 |    -0.53 | 594 |  
 <div class="cell">
 <div class="sourceCode cell-code" id="cb17"><pre class="sourceCode numberSource r number-lines code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href></a>bw <span class="ot">=</span> <span class="dv">1</span> <span class="co"># specify width of bins in histogram</span></span>
 <span id="cb17-2"><a href></a></span>
-<span id="cb17-3"><a href></a><span class="fu">ggplot</span>(dat2, <span class="fu">aes</span>(height_in)) <span class="sc">+</span></span>
+<span id="cb17-3"><a href></a><span class="fu">ggplot</span>(dat2, <span class="fu">aes</span>(<span class="at">x =</span> height_in)) <span class="sc">+</span></span>
 <span id="cb17-4"><a href></a>  <span class="fu">geom_histogram</span>(<span class="at">binwidth =</span> bw, </span>
 <span id="cb17-5"><a href></a>                 <span class="at">fill =</span> <span class="st">&quot;salmon&quot;</span>, <span class="at">col =</span> <span class="st">&quot;yellow&quot;</span>) <span class="sc">+</span></span>
 <span id="cb17-6"><a href></a>  <span class="fu">stat_function</span>(<span class="at">fun =</span> <span class="cf">function</span>(x)</span>
@@ -1541,7 +1541,7 @@ height_in |     67 | 4.45 |   6 | [57.00, 77.50] |     0.20 |    -0.53 | 594 |  
 <span id="cb18-2"><a href></a></span>
 <span id="cb18-3"><a href></a>bw <span class="ot">=</span> <span class="dv">5</span> <span class="co"># specify width of bins in histogram</span></span>
 <span id="cb18-4"><a href></a></span>
-<span id="cb18-5"><a href></a><span class="fu">ggplot</span>(dat3, <span class="fu">aes</span>(haircut)) <span class="sc">+</span></span>
+<span id="cb18-5"><a href></a><span class="fu">ggplot</span>(dat3, <span class="fu">aes</span>(<span class="at">x =</span> haircut)) <span class="sc">+</span></span>
 <span id="cb18-6"><a href></a>  <span class="fu">geom_histogram</span>(<span class="at">binwidth =</span> bw, </span>
 <span id="cb18-7"><a href></a>                 <span class="at">fill =</span> <span class="st">&quot;forestgreen&quot;</span>, <span class="at">col =</span> <span class="st">&quot;white&quot;</span>) <span class="sc">+</span></span>
 <span id="cb18-8"><a href></a>  <span class="fu">stat_function</span>(<span class="at">fun =</span> <span class="cf">function</span>(x)</span>
@@ -1913,8 +1913,8 @@ Coefficients:
 </div>
 </div>
 </section>
-<section id="summarizing-our-model-mod1" class="slide level2">
-<h2>Summarizing our model <code>mod1</code></h2>
+<section id="summarizing-our-model" class="slide level2">
+<h2>Summarizing our model</h2>
 <div class="cell">
 <div class="sourceCode cell-code" id="cb45"><pre class="sourceCode numberSource r number-lines code-with-copy"><code class="sourceCode r"><span id="cb45-1"><a href></a><span class="fu">model_parameters</span>(mod4)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">

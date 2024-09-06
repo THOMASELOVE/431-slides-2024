@@ -213,7 +213,7 @@ ggplot(data = dat2, aes(x = height_in)) +
 
 bw = 1 # specify width of bins in histogram
 
-ggplot(dat2, aes(height_in)) +
+ggplot(dat2, aes(x = height_in)) +
   geom_histogram(binwidth = bw, 
                  fill = "salmon", col = "yellow") +
   stat_function(fun = function(x)
@@ -237,7 +237,7 @@ dat3 <- qsdat |> filter(complete.cases(haircut), year == "2024")
 
 bw = 5 # specify width of bins in histogram
 
-ggplot(dat3, aes(haircut)) +
+ggplot(dat3, aes(x = haircut)) +
   geom_histogram(binwidth = bw, 
                  fill = "forestgreen", col = "white") +
   stat_function(fun = function(x)
@@ -462,7 +462,7 @@ mod4 <- lm(haircut ~ height_cm, data = dat4)
 mod4
 ```
 
-## Summarizing our model `mod1`
+## Summarizing our model
 
 ```{r}
 #| echo: true
@@ -632,4 +632,5 @@ By now, I've shown you everything you need to complete all Tasks for Lab 1.
 #| echo: true
 xfun::session_info()
 ```
+
 

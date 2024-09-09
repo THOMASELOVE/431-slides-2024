@@ -1,0 +1,512 @@
+---
+title: "431 Class 05"
+author: Thomas E. Love, Ph.D.
+date: "2024-09-10"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 05 | 2024-09-10 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda {.smaller}
+
+- An introduction to the `dm464` study
+- Estimating the Difference between Two Population Means
+  - using paired samples
+  - using independent samples
+- Comparisons using 
+  - ordinary least squares linear models (and their t-based equivalents), 
+  - the bootstrap, and 
+  - Bayesian linear models
+- Most of the material in these slides is also discussed in Chapters 5-6 of [our course book](https://thomaselove.github.io/431-book/).
+
+## Load packages and set theme
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+
+library(ggdist)     ## new today
+library(knitr)      ## new (sort of) today
+library(kableExtra) ## new today
+library(MKinfer)    ## new today
+
+library(patchwork)
+library(rstanarm)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(comment = NA)
+
+source("c05/data/Love-431.R") # for the lovedist() function
+```
+
+
+# Managing the Data
+
+## Today's data (`dm464_class05.csv`)
+
+The data describe a cohort of 464 adults with diabetes, measured at baseline, and then two years later.
+
+```{r}
+#| echo: true
+dm5 <- read_csv("c05/data/dm464_class05.csv", show_col_types = FALSE) 
+
+names(dm5)
+
+dm5 <- janitor::clean_names(dm5)
+
+names(dm5)
+
+dim(dm5)
+```
+
+## Variable Definitions (1/2) {.smaller}
+
+Cohort study where 464 adult subjects (ages 21-75) with a diabetes diagnosis were measured during a 12-month baseline period, and then again two years later.
+
+Variable | Definition
+-----: | :--------------------------------------------
+`id_code` | Subject Code (unique for each subject/row)
+`age` | Age at end of the baseline period, in years
+`sex` | Female or Male
+`statin` | Statin prescription in baseline period: 1 (yes) or 0 (no)
+`residence` | place of residence in baseline: City or Suburbs
+`a1c_base` | baseline Hemoglobin A1c, %
+`a1c_end` | most recent Hemoglobin A1c at end of study, %
+`ldl_base` | baseline LDL cholesterol, mg/dl
+
+## Convert Characters to Factors
+
+```{r}
+#| echo: true
+dm5 <- dm5 |>
+  mutate(across(where(is.character), as_factor)) |>
+  mutate(id_code = as.character(id_code))
+
+dm5 |> tail() # final six observations
+```
+
+- We might convert `statin` (1/0) to a binary factor, but I won't, at least for now.
+
+## Automated "Codebook"
+
+- Why am I leaving out the `id_code` results here?
+- This is most useful for missingness and range checks.
+
+```{r}
+#| echo: true
+data_codebook(dm5 |> select(-id_code))
+```
+
+## Today's Analytic Questions
+
+1. How large is the difference in the mean Hemoglobin A1c level at baseline as compared to the A1c level in the follow-up period?
+
+2. How large is the difference in baseline LDL for patients who do have a statin prescription at baseline compared to those who don't have a statin prescription?
+
+# Compare the Hemoglobin A1c level at baseline to the A1c level in the follow-up period.
+
+## Comparing `a1c_base` to `a1c_end`
+
+We are comparing each subject's `a1c_base` to their `a1c_end`, to learn something about the mean of those differences.
+
+Does this planned analysis make use of paired samples or independent samples?
+
+>- Each subject provides an `a1c_base` as well as an `a1c_end`.
+>- Calculating the difference (`a1c_end` - `a1c_base`) makes sense for each individual subject.
+>- This will leave us with $n = 464$ paired differences to study.
+
+## Build the paired differences in A1c
+
+```{r}
+#| echo: true
+dm5 <- dm5 |>
+  mutate(a1c_diff = a1c_end - a1c_base)
+
+fivenum(dm5$a1c_diff) ## min, q25, median, q75, max
+stem(dm5$a1c_diff)    ## stem-and-leaf display
+```
+
+## What does the distribution of A1c differences look like? (1/4)
+
+- Plot `p1` - Histogram with superimposed Normal curve
+
+```{r}
+#| echo: true
+
+bw = 1 # specify width of bins in histogram
+
+p1 <- ggplot(dm5, aes(x = a1c_diff)) +
+  geom_histogram(binwidth = bw, fill = "black", col = "yellow") +
+  stat_function(fun = function(x) 
+    dnorm(x, mean = mean(dm5$a1c_diff, na.rm = TRUE), 
+          sd = sd(dm5$a1c_diff, na.rm = TRUE)) * 
+          length(dm5$a1c_diff) * bw,
+    geom = "area", alpha = 0.5, 
+    fill = "lightblue", col = "blue") +
+  labs(x = "Bill Length in mm", y = "Count",
+       title = "Histogram & Normal Curve")
+```
+
+## What does the distribution of A1c differences look like? (2/4)
+
+- Plot `p2` - Normal Q-Q plot
+
+```{r}
+#| echo: true
+
+p2 <- ggplot(dm5, aes(sample = a1c_diff)) +
+  geom_qq() + geom_qq_line(col = "red") +
+  labs(y = "Bill Length in mm", x = "Standard Normal Distribution",
+    title = "Normal Q-Q plot")
+```
+
+## What does the distribution of A1c differences look like? (3/4)
+
+- Plot `p3` - Boxplot with violin and mean
+
+```{r}
+#| echo: true
+
+p3 <- ggplot(dm5, aes(x = a1c_diff, y = "")) +
+  geom_violin(fill = "cornsilk") +
+  geom_boxplot(width = 0.2) +
+  stat_summary(fun = mean, geom = "point", shape = 16, col = "red") +
+  labs(y = "", x = "Bill Length in mm", title = "Boxplot with Violin")
+```
+
+## Shape of the distribution? (4/4)
+
+- Use the patchwork package to combine plots `p1`, `p2` and `p3` into a single figure
+- See [section 2.4.6 in our Course Book](https://thomaselove.github.io/431-book/02_viz.html#three-plots-at-once) for similar "Three Plots At Once" code.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 + 
+  (p2 / p3 + plot_layout(heights = c(2, 1))) +
+  plot_annotation(title = "dm5 study: Differences in A1c")
+```
+
+## Summaries of A1c differences
+
+OK, so the distribution of A1c differences looks symmetric, but outlier-prone relative to a Normal distribution.
+
+- Can we get some numerical summaries?
+
+```{r}
+#| echo: true
+
+dm5 |> reframe(lovedist(a1c_diff)) |> 
+  kbl(digits = 2) |> 
+  kable_styling(font_size = 32)
+```
+
+- What does the mean (0.33) mean in this context?
+
+## Are our paired A1c values correlated? 
+
+- One way to see if pairing helps is to look for a positive correlation between the A1c values at the start (`a1c_base`) and at the end (`a1c_end`) of the study.
+
+```{r}
+#| echo: true
+
+cor(dm5$a1c_base, dm5$a1c_end)
+```
+
+- Here, we see a meaningful and positive correlation between the paired A1c values, suggesting that the pairing helped to reduce nuisance variation.
+
+## Estimating the Mean Difference
+
+We'll demonstrate three approaches today (see [Chapter 5](https://thomaselove.github.io/431-book/05_paired.html)) for these paired samples.
+
+1. Ordinary least squares regression model (equivalent to a paired t procedure in this setting) fit with `lm()`.
+2. Bayesian regression model with a weakly informative prior.
+3. Bootstrap confidence interval for the mean difference.
+
+In each case, we'll estimate the mean difference and form a **90%** uncertainty interval.
+
+## Using `lm()` to fit an OLS model
+
+```{r}
+#| echo: true
+
+fit1 <- lm(a1c_diff ~ 1, data = dm5)
+
+model_parameters(fit1, ci = 0.90)
+```
+
+- Sample mean difference is 0.33, with 90% uncertainty interval (0.20, 0.47).
+- All three of these summaries are positive numbers. What does that indicate?
+
+## Paired t approach = same as OLS
+
+- Note that here we must include `conf.level = 0.90` within the `t.test()` command and `ci = 0.90` in the call to `model_parameters()` in order to get the right (90%) uncertainty interval.
+
+```{r}
+#| echo: true
+
+fit2 <- t.test(dm5$a1c_diff, conf.level = 0.90)
+model_parameters(fit2, ci = 0.90)
+```
+
+## Bayesian fit
+
+Bayesian inference is an excellent choice for virtually every regression model, even when using **weakly informative default priors** (as we will do in 431), because it yields estimates which are stable, and because it helps us present the uncertainty associated with our estimates in useful ways.
+
+```{r}
+#| echo: true
+
+set.seed(431123)
+
+fit3 <- stan_glm(a1c_diff ~ 1, data = dm5, refresh = 0)
+
+model_parameters(fit3, ci = 0.90)
+```
+
+## The bootstrap (with `MKinfer`)
+
+```{r}
+#| echo: true
+
+set.seed(20240910)
+boot.t.test(dm5$a1c_diff, conf.level = 0.90, R = 2000)
+```
+
+## 90% Uncertainty Intervals
+
+Let's consider the approaches we have demonstrated to estimate the mean of the paired differences in Hemoglobin A1c levels from the start to the end of the study...
+
+Approach | Estimate & 90% Interval
+:-------------------------------------: | :------------:
+Ordinary least squares / Paired t | 0.33 (0.20, 0.47)
+Bayesian fit with `stan_glm()` | 0.33 (0.19, 0.47)
+Bootstrap (via `boot.t.test`) | 0.33 (0.20, 0.47)
+
+- Do our conclusions change here?
+
+# Compare the baseline LDL for patients who do have a statin prescription at baseline to those who don't.
+
+## Comparing `ldl_base` by `statin` level
+
+```{r}
+#| echo: true
+#| warning: true
+
+ggplot(dm5, aes(x = ldl_base, y = statin)) +
+  geom_violin() +
+  geom_boxplot(width = 0.3)
+```
+
+## Create a `statin` factor variable
+
+```{r}
+#| echo: true
+
+dm5 <- dm5 |>
+  mutate(statin_f = as_factor(statin),
+         statin_f = fct_recode(statin_f, 
+                               "Statin" = "1", "No Statin" = "0"))
+
+dm5 |> tabyl(statin, statin_f)
+```
+
+
+## Comparing `ldl_base` by `statin` level
+
+We'll build a boxplot, including violins and means.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(dm5, aes(x = ldl_base, y = statin_f, 
+                fill = statin_f)) +
+  geom_violin() +
+  geom_boxplot(width = 0.3, fill = "white") +
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3,
+               col = "red") +
+  scale_fill_viridis_d(alpha = 0.3) +
+  guides(fill = "none") +
+  labs(title = "LDL by Statin Prescription Status",
+       x = "Most recent LDL in the baseline period, in mg/dl", 
+       y = "Statin Prescription at end of baseline period")
+```
+
+## Rain Cloud Plot
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(dm5, aes(y = statin_f, x = ldl_base, fill = statin_f)) +
+  stat_slab(aes(thickness = after_stat(pdf * n)), scale = 0.7) +
+  stat_dotsinterval(side = "bottom", scale = 0.7, 
+                    slab_linewidth = NA) +
+  scale_fill_viridis_d(alpha = 0.7) +
+  guides(fill = "none") +
+  labs(title = "LDL by Statin Prescription Status",
+       x = "Most recent LDL in the baseline period, in mg/dl", 
+       y = "Statin Prescription at end of baseline period")
+```
+
+## Faceted Histograms
+
+```{r}
+#| echo: true
+
+bw = 5
+ggplot(dm5, aes(x = ldl_base)) + 
+  geom_histogram(binwidth = bw, fill = "navy", col = "white") + 
+  facet_wrap(~ statin_f) +
+  labs(x = "LDL at baseline", y = "Counts", 
+       title = "LDL by Statin Status")
+```
+
+## Faceted Normal Q-Q plots
+
+```{r}
+#| echo: true
+
+ggplot(dm5, aes(sample = ldl_base)) + 
+  geom_qq() + geom_qq_line(col = "purple") + 
+  facet_wrap(~ statin_f) +
+  labs(x = "Standard Normal distribution", y = "LDL at baseline")
+```
+
+## Comparing `ldl_base` by `statin` level
+
+- LDL data in each statin group are skewed to the right, with the mean higher than the median. 
+
+```{r}
+#| echo: true
+dm5 |> group_by(statin_f) |> reframe(lovedist(ldl_base)) |>
+  kbl(digits = 1) |> kable_styling(font_size = 32)
+```
+
+- Were these data collected using matched/paired samples or using independent samples?
+
+## Estimating the Difference in Means
+
+We'll demonstrate four approaches today (see [Chapter 6](https://thomaselove.github.io/431-book/06_twogroups.html)) for these independent samples.
+
+1. Ordinary least squares regression model (which is the same as a pooled t procedure in this setting) fit with `lm()`.
+2. Bayesian regression model with a weakly informative prior.
+3. Welch t procedure without pooling the standard deviation across the two groups.
+4. Bootstrap confidence interval for the difference in means.
+
+Estimating difference in means with **90%** uncertainty interval.
+
+## Using `lm()` to fit an OLS model
+
+```{r}
+#| echo: true
+
+fit4 <- lm(ldl_base ~ statin_f, data = dm5)
+
+model_parameters(fit4, ci = 0.90)
+```
+
+- Comparing those on a statin to those that aren't, our model suggests that the mean difference in LDL levels is 7.17 mg/dl with 90% uncertainty interval (0.02, 14.32) mg/dl.
+
+
+## Pooled t approach = same as OLS
+
+```{r}
+#| echo: true
+
+fit5 <- t.test(ldl_base ~ statin_f, data = dm5, 
+               var.equal = TRUE, conf.level = 0.90)
+
+model_parameters(fit5, ci = 0.90) 
+```
+
+## Bayesian regression model
+
+```{r}
+#| echo: true
+
+set.seed(20240910)
+
+fit6 <- stan_glm(ldl_base ~ statin_f, data = dm5, refresh = 0)
+
+model_parameters(fit6, ci = 0.90)
+```
+
+## Welch t approach (no pooling)
+
+```{r}
+#| echo: true
+
+fit7 <- t.test(ldl_base ~ statin_f, data = dm5, 
+               var.equal = FALSE, conf.level = 0.90)
+
+model_parameters(fit7, ci = 0.90)  
+```
+
+## Bootstrap, with `MKinfer`
+
+```{r}
+#| echo: true
+
+set.seed(431022)
+boot.t.test(ldl_base ~ statin_f, var.equal = TRUE, R = 2000,
+  data = dm5, conf.level = 0.90)
+```
+
+## Bootstrap without pooling sd
+
+```{r}
+#| echo: true
+
+set.seed(431023)
+boot.t.test(ldl_base ~ statin_f, var.equal = FALSE, R = 2000,
+  data = dm5, conf.level = 0.90)
+```
+
+## 90% Uncertainty Intervals
+
+Estimating the mean difference in LDL levels at baseline for the "Statin" group minus the "No Statin" group...
+
+Approach | Estimate & 90% Interval
+:-------------------------------------: | :------------:
+Ordinary least squares / Pooled t | 7.17 (0.02, 14.32)
+Bayesian fit with `stan_glm()` | 7.22 (-0.06, 14.56)
+Welch t without pooling sd | 7.17 (0.86, 13.48)
+Bootstrap with pooled sd | 7.21 (0.34, 14.29)
+Bootstrap with unpooled sd | 7.23 (0.88, 13.66)
+
+- Do our conclusions change here?
+
+## Repeating Today's Agenda {.smaller}
+
+- An introduction to the `dm464` study
+- Estimating the Difference between Two Population Means
+  - using paired samples
+  - using independent samples
+- Comparisons using 
+  - ordinary least squares linear models, 
+  - the bootstrap, and 
+  - Bayesian linear models
+- For more examples, see Chapters 5-6 of [our course book](https://thomaselove.github.io/431-book/).
+- At this point, you should be able to do [Lab 2](https://github.com/THOMASELOVE/431-labs-2024/tree/main/lab2).
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```
+
+

@@ -154,7 +154,7 @@ p1 <- ggplot(dm5, aes(x = a1c_diff)) +
           length(dm5$a1c_diff) * bw,
     geom = "area", alpha = 0.5, 
     fill = "lightblue", col = "blue") +
-  labs(x = "Bill Length in mm", y = "Count",
+  labs(x = "A1c difference (%)", y = "Count",
        title = "Histogram & Normal Curve")
 ```
 
@@ -167,7 +167,7 @@ p1 <- ggplot(dm5, aes(x = a1c_diff)) +
 
 p2 <- ggplot(dm5, aes(sample = a1c_diff)) +
   geom_qq() + geom_qq_line(col = "red") +
-  labs(y = "Bill Length in mm", x = "Standard Normal Distribution",
+  labs(y = "A1c difference (%)", x = "Standard Normal Distribution",
     title = "Normal Q-Q plot")
 ```
 
@@ -182,7 +182,7 @@ p3 <- ggplot(dm5, aes(x = a1c_diff, y = "")) +
   geom_violin(fill = "cornsilk") +
   geom_boxplot(width = 0.2) +
   stat_summary(fun = mean, geom = "point", shape = 16, col = "red") +
-  labs(y = "", x = "Bill Length in mm", title = "Boxplot with Violin")
+  labs(y = "", x = "A1c difference (%)", title = "Boxplot with Violin")
 ```
 
 ## Shape of the distribution? (4/4)

@@ -70,7 +70,7 @@ names(dm5)
 dim(dm5)
 ```
 
-## Variable Definitions (1/2) {.smaller}
+## Variable Definitions {.smaller}
 
 Cohort study where 464 adult subjects (ages 21-75) with a diabetes diagnosis were measured during a 12-month baseline period, and then again two years later.
 

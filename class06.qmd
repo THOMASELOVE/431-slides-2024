@@ -1,0 +1,540 @@
+---
+title: "431 Class 06"
+author: Thomas E. Love, Ph.D.
+date: "2024-09-12"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 06 | 2024-09-12 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda {.smaller}
+
+- Assumptions of our uncertainty intervals
+  - for one sample / paired differences
+  - for two independent samples
+- Transforming an Outcome (see [Chapter 7 of our book](https://thomaselove.github.io/431-book/))
+  - Why transform?
+  - The importance of the logarithm and other power transformations
+  - Tukey's ladder and the Box-Cox plot
+  - Back-transforming predictions, not coefficients
+
+## Load packages and set theme
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+
+library(car)         ## new today
+library(infer)       ## new today
+library(MKinfer)
+
+library(patchwork)
+library(rstanarm)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(comment = NA)
+
+source("c06/data/Love-431.R") # for the lovedist() function
+```
+
+## Returning to the DM-464 data
+
+```{r}
+#| echo: true
+dm6 <- read_csv("c06/data/dm464_class06.csv", show_col_types = FALSE) |>
+  janitor::clean_names() |>
+  mutate(across(where(is.character), as_factor)) |>
+  mutate(statin_f = as_factor(statin),
+         statin_f = fct_recode(statin_f, 
+                               "Statin" = "1", "No Statin" = "0")) |>
+  mutate(id_code = as.character(id_code))
+
+dim(dm6)
+```
+
+## Uncertainty Interval Assumptions {.smaller}
+
+### One Sample (perhaps of Paired Differences)
+
+- All approaches assume our sample is a **random** sample (or at least a representative one) from the population of interest.
+- Ordinary Least Squares model / Paired T test also assumes that the population of interest follows a Normal distribution, so that our sample data should look as though it were drawn from a Normal distribution.
+- Our Bayesian approach assumes a (weakly informative) prior distribution on the coefficient in our model.
+- The bootstrap approach does not assume a Normal distribution for the population.
+
+Main check in data: Normal distribution?
+
+
+## Difference in A1c (end - baseline)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+dm6 <- dm6 |> mutate(a1c_diff = a1c_end - a1c_base)
+
+p1 <- ggplot(dm6, aes(sample = a1c_diff)) +
+  geom_qq() + geom_qq_line(col = "red") +
+  labs(y = "A1c difference (%)", x = "Standard Normal Distribution",
+    title = "Normal Q-Q plot")
+
+bw = 1 # specify width of bins in histogram
+
+p2 <- ggplot(dm6, aes(x = a1c_diff)) +
+  geom_histogram(binwidth = bw, fill = "black", col = "yellow") +
+  stat_function(fun = function(x) 
+    dnorm(x, mean = mean(dm6$a1c_diff, na.rm = TRUE), 
+          sd = sd(dm6$a1c_diff, na.rm = TRUE)) * 
+          length(dm6$a1c_diff) * bw,
+    geom = "area", alpha = 0.5, 
+    fill = "lightblue", col = "blue") +
+  labs(x = "A1c difference (%)", y = "Count",
+       title = "Histogram & Normal Curve")
+
+p1 + p2 + 
+  plot_annotation("Are differences in Hemoglobin A1c Normally distributed?")
+```
+
+## Boxplot for Difference in A1c 
+
+```{r}
+#| echo: true
+
+ggplot(dm6, aes(x = a1c_diff, y = "")) +
+  geom_violin(fill = "cornsilk") +
+  geom_boxplot(width = 0.2) +
+  stat_summary(fun = mean, geom = "point", shape = 16, col = "red") +
+  labs(y = "", x = "A1c difference (%)", title = "Boxplot with Violin")
+```
+
+## Does a Normal model fit well?
+
+Do we have ...
+
+1. A histogram that is symmetric and bell-shaped.
+2. A boxplot where the box is symmetric around the median, as are the whiskers, without severe outliers.
+3. A normal Q-Q plot that essentially falls on a straight line.
+4. If in doubt, maybe compare mean and sd to median and MAD, and consider Empirical Rule to help make tough calls.
+
+- **Don't** rely on hypothesis tests of whether data follow a Normal distribution.
+
+## What to do about outliers? {.smaller}
+
+The paired differences here appear to be symmetric, but with outliers.
+
+- This should push us towards a method which doesn't require the assumption of Normality.
+  - Specifically, the bootstrap would likely be a better choice than a t test, although it didn't make a meaningful difference when we ran it last time.
+  - 90% uncertainty interval with OLS/t test was (0.20, 0.47) and the bootstrap 90% uncertainty interval was also (0.20, 0.47).
+
+- Could we transform these data in a non-linear way to better match assumptions?
+  - Not really, no. Most of the transformations we use regularly are designed to address skew in the data, rather than tail behavior.
+  
+- Should we build our interval around the median instead of the mean? 
+  - sample median = 0.2, sample mean = 0.33
+  - Maybe, but does that actually address the issue in this case?
+
+## Bootstrap 90% interval for Median
+
+This is from the `infer` package...
+
+```{r}
+#| echo: true
+set.seed(431)
+
+x_med <- dm6 |>
+  observe(response = a1c_diff, stat = "median")
+
+res1 <- dm6 |>
+  specify(response = a1c_diff) |>
+  generate(reps = 2000, type = "bootstrap") |>
+  calculate(stat = "median") |>
+  get_confidence_interval(level = 0.90, type = "percentile")
+
+res1 <- res1 |>
+  mutate(pt_est = x_med$stat) |>
+  relocate(pt_est)
+
+res1
+```
+
+## Uncertainty Interval Assumptions {.smaller}
+
+### Two Independent Samples
+
+- All methods assume each of the two samples is a random sample (or at least a representative one) from its population of interest.
+- Ordinary Least Squares model / Pooled T test additionally assumes that:
+    - **each** of the two populations of interest follows a Normal distribution, **and**
+    - **either** the variance of those two populations is equal, so it makes sense to create a pooled estimate of the standard deviation, **or** the sample sizes are equal in the two groups (a balanced design)
+- The Welch t test assumes Normality, but not equal variances.
+- Our Bayesian approach assumes a (weakly informative) prior distribution on each of the coefficients (intercept and slope) of our model.
+- The bootstrap approach does not assume a Normal distribution for the population, but can take advantage of an assumption of equal variances if it exists.
+
+## From last class... {.smaller}
+
+Estimating the mean difference in LDL levels at baseline for the "Statin" group minus the "No Statin" group...
+
+Approach | Estimate & 90% Interval
+:-------------------------------------: | :------------:
+Ordinary least squares / Pooled t | 7.17 (0.02, 14.32)
+Bayesian fit with `stan_glm()` | 7.22 (-0.06, 14.56)
+Welch t without pooling sd | 7.17 (0.86, 13.48)
+Bootstrap with pooled sd | 7.21 (0.34, 14.29)
+Bootstrap with unpooled sd | 7.23 (0.88, 13.66)
+
+- Is there a big impact here of using the Bootstrap rather than OLS?
+
+## LDL by Statin prescription status
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(dm6, aes(x = ldl_base, y = statin_f)) +
+  geom_violin() +
+  geom_boxplot(aes(fill = statin_f), width = 0.3) +
+  stat_summary(fun = mean, geom = "point", 
+               shape = 18, size = 3, col = "yellow") +
+  guides(fill = "none") +
+  labs(y = "Statin prescription", x = "LDL Cholesterol (mg/dl)",
+       title = "LDL by Statin prescription",
+       subtitle = "Each group is a bit skewed to the right")
+```
+
+## Can we do something about the skew?
+
+- Could we build a confidence interval for medians instead of means?
+  - Yes, with the bootstrap, for example.
+
+- Could we transform the data in a non-linear way to better match assumptions?
+  - Yes, with the help of Tukey's ladder of power transformations.
+
+## Tukey's Ladder {.smaller}
+
+Power ($\lambda$) | -2 | -1 | -0.5 | 0 | 0.5 | 1 | 2 | 3
+------------: | ---: | ---: | ---: | -----: | ---: | ---: | ---: | ---:
+Transformation | $\frac{1}{y^2}$ | $\frac{1}{y}$ | $\frac{1}{\sqrt{y}}$ | log $y$ | $\sqrt{y}$ | $y$ | $y^2$ | $y^3$
+
+- Works to address skew, mainly, rather than symmetry with problems in the tails
+- Some of these transformations require all values to be positive. If they aren't, we can add a small amount to each observation until they are.
+- Start at no transformation ($\lambda = 1$)
+- Try moving in one direction or the other, searching for a result which better matches what we might expect from a Normal distribution
+  - If a step (like taking the square root) helps, move in that same direction.
+  - If it doesn't help, try moving in the other direction.
+
+## A1c values (end of study)
+
+```{r}
+ggplot(dm6, aes(x = a1c_end)) + 
+  geom_histogram(binwidth = 0.4, fill = "slateblue", col = "white") + 
+  stat_function(fun = function(x) 
+    dnorm(x, mean = mean(dm6$a1c_end, na.rm = TRUE), 
+          sd = sd(dm6$a1c_end, na.rm = TRUE)) * 
+          length(dm6$a1c_end) * 0.4,
+    geom = "area", alpha = 0.5, 
+    fill = "lightblue", col = "blue") +
+  labs(title = "A1c (untransformed)", x = "Hemoglobin A1c, %", y = "Count")
+```
+
+## Six Power Transformations
+
+```{r}
+p1 <- ggplot(dm6, aes(x = a1c_end^3)) + 
+  geom_histogram(bins = 25, fill = "firebrick", col = "white") + 
+  labs(title = "A1c^3 (cubed)", x = "A1c^3", y = "Count")
+
+p2 <- ggplot(dm6, aes(x = a1c_end^2)) + 
+  geom_histogram(bins = 25, fill = "magenta", col = "white") + 
+  labs(title = "A1c^2 (squared)", x = "A1c^2", y = "Count")
+
+p3 <- ggplot(dm6, aes(x = a1c_end)) + 
+  geom_histogram(bins = 25, fill = "slateblue", col = "white") + 
+  labs(title = "A1c (untransformed)", x = "Hemoglobin A1c, %", y = "Count")
+
+p4 <- ggplot(dm6, aes(x = sqrt(a1c_end))) + 
+  geom_histogram(bins = 25, fill = "skyblue", col = "white") + 
+  labs(title = "sqrt(A1c) (square root)", x = "sqrt(A1c)", y = "Count")
+
+p5 <- ggplot(dm6, aes(x = log(a1c_end))) + 
+  geom_histogram(bins = 25, fill = "navy", col = "white") + 
+  labs(title = "log A1c (logarithm)", x = "log A1c", y = "Count")
+
+p6 <- ggplot(dm6, aes(x = 1/a1c_end)) + 
+  geom_histogram(bins = 25, fill = "thistle", col = "white") + 
+  labs(title = "1/A1c (inverse)", x = "1/A1c", y = "Count")
+
+(p1 + p2 + p3) / (p4 + p5 + p6)
+```
+
+
+
+## Which Transformation to Choose?
+
+Box-Cox approach: can we get a suggested "power" to use when transforming our outcome?
+
+- Specify the model then apply `boxCox` from `car` package.
+- Here, all values of our outcome (A1c) are strictly positive. 
+  - If not, we'd have to add a constant so that they were.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+fit1 <- lm(a1c_end ~ 1, data = dm6)
+boxCox(fit1)
+```
+
+## Back to LDL by Statin prescription
+
+```{r}
+ggplot(dm6, aes(x = ldl_base, y = statin_f)) +
+  geom_violin() +
+  geom_boxplot(aes(fill = statin_f), width = 0.3) +
+  stat_summary(fun = mean, geom = "point", 
+               shape = 18, size = 3, col = "yellow") +
+  guides(fill = "none") +
+  labs(y = "Statin prescription", x = "LDL Cholesterol (mg/dl)",
+       title = "LDL by Statin prescription",
+       subtitle = "Each group is a bit skewed to the right")
+```
+
+## What transformation should we try?
+
+```{r}
+#| echo: true
+
+fit2 <- lm(ldl_base ~ statin, data = dm6)
+boxCox(fit2)
+```
+
+## log(LDL) by Statin?
+
+```{r}
+#| echo: true
+
+ggplot(dm6, aes(x = log(ldl_base), y = statin_f)) +
+  geom_violin() + geom_boxplot(aes(fill = statin_f), width = 0.3) +
+  labs(y = "Statin prescription", x = "log(LDL)",
+       title = "log(LDL) by Statin prescription") +
+  guides(fill = "none")
+```
+
+## Estimate log(LDL) by Statin
+
+Let's use a 90% uncertainty interval...
+
+```{r}
+#| echo: true
+#| message: true
+
+fit3 <- lm(log(ldl_base) ~ statin_f, data = dm6)
+
+model_parameters(fit3, ci = 0.90)
+```
+
+## Expectations from our model
+
+- The coefficients of this model exist in the transformed world, but we can make predictions back on our original scale.
+
+```{r}
+#| echo: true
+
+estimate_expectation(fit3, data = "grid", ci = 0.90)
+```
+
+- and we exponentiate to get back to our original scale...
+
+## Exponentiation of Expectations
+
+- We back out of the logged predictions by exponentiating them.
+
+Group | Predicted LDL | 90% uncertainty interval
+------: | :----------: | :---------------:
+No Statin | exp(4.52) = `r round_half_up(exp(4.52),1)` | (exp(4.46), exp(4.58)) = <br /> (`r round_half_up(exp(4.46),1)`, `r round_half_up(exp(4.58),1)`) 
+Statin | exp(4.57) = `r round_half_up(exp(4.57),1)` | (exp(4.54), exp(4.60)) = <br /> (`r round_half_up(exp(4.54),1)`, `r round_half_up(exp(4.60),1)`) 
+
+- These intervals describe uncertainty about the **average predicted LDL across all subjects** in each statin group.
+
+## Fitting Individual Predictions
+
+- We use `estimate_prediction()` to make predictions for an individual subject in each group.
+
+```{r}
+#| echo: true
+
+estimate_prediction(fit3, data = "grid", ci = 0.90)
+```
+
+- and again we exponentiate to get back to our original scale...
+
+## Fitting Individual Predictions
+
+- We back out of the logged predictions by exponentiating them.
+
+Group | Predicted LDL | 90% uncertainty interval
+------: | :----------: | :---------------:
+No Statin | exp(4.52) = `r round_half_up(exp(4.52),1)` | (exp(3.92), exp(5.12)) = <br /> (`r round_half_up(exp(3.92),1)`, `r round_half_up(exp(5.12),1)`) 
+Statin | exp(4.57) = `r round_half_up(exp(4.57),1)` | (exp(3.97), exp(5.17)) = <br /> (`r round_half_up(exp(3.97),1)`, `r round_half_up(exp(5.17),1)`) 
+
+- These intervals describe uncertainty about an **individual predicted LDL for a single subject** within each statin group.
+
+## Using the log transformation
+
+- The log transformation in R (`log` in R is the natural log - the base 10 log is `log10()`) generates coefficients which describe a multiplicative effect.
+
+If we fit a model to predict $y$ using $x$ of the form:
+
+$$
+\log y = \beta_0 + \beta_1 x
+$$
+
+where $\log y$ is the natural logarithm, then if we exponentiate the slope coefficient, we get the multiplicative factor for each one-unit increase in the predictor.
+
+## The Math
+
+$$
+\log(y) = \beta_0 + \beta_1 x \\
+\exp(\log(y)) = \exp(\beta_0 + \beta_1 x) \\
+y = \exp(\beta_0 + \beta_1 x) \\
+y = \exp(\beta_0) \times \exp(\beta_1 x)
+$$
+This implies that our predictor ($x$) has a multiplicative relationship with our outcome ($y$) instead of the usual additive relationship. Hence, we can express the effect of a one-unit change in $x$ on $y$ as a percentage change.
+
+## Example 1
+
+Suppose we build a regression model with equation $\log y = 6 + 0.23 x$. 
+
+Note that $\exp(0.23) = 1.26$.
+
+- If Harry's value of $x$ is 1 point larger than Sally's, the predicted $y$ value for Harry will be increased by 26% relative to Sally's. (Increased by 26% = multiplied by 1.26.)
+
+## Example 2
+
+```{r}
+#| echo: true
+fit3 <- lm(log(ldl_base) ~ statin_f, data = dm6)
+
+model_parameters(fit3, ci = 0.90)
+```
+
+- We can exponentiate these coefficients...
+
+```{r}
+model_parameters(fit3, exponentiate = TRUE, ci = 0.90)
+```
+
+Subjects *with* a statin prescription have 5% higher LDL, on average, than do subjects *without*. The ratio has point estimate 1.05 and 90% interval estimate (0.98, 1.13).
+
+## Difference in A1c by Sex
+
+```{r}
+#| echo: true
+
+ggplot(dm6, aes(x = a1c_diff, y = sex)) +
+  geom_violin() + geom_boxplot(aes(fill = sex), width = 0.3) +
+  labs(x = "Change in A1c", y = "Sex",
+       title = "Difference in A1c (end - base) by Sex") +
+  guides(fill = "none")
+```
+
+## Numerical Summary
+
+```{r}
+#| echo: true
+dm6 |> group_by(sex) |> 
+  reframe(lovedist(a1c_diff)) |> 
+  print_md(digits = 3)
+```
+
+- Observed difference in sample means is 0.503 - 0.227 = 0.276
+- Do we have a balanced design?
+- Do we feel comfortable pooling these standard deviations?
+- Do we feel comfortable assuming Normality for each sex?
+
+## Might a transformation help here?
+
+Some of the changes in A1c are negative (minimum was -5.9)
+
+```{r}
+#| echo: true
+
+dm6 <- dm6 |> mutate(a1c_diff_p6 = a1c_diff + 6)
+fit4 <- lm(a1c_diff_p6 ~ sex, data = dm6)
+boxCox(fit4)
+```
+
+## Does using a square root help us here?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(dm6, aes(x = a1c_diff_p6, y = sex)) +
+  geom_violin() + geom_boxplot(aes(fill = sex), width = 0.3) +
+  labs(x = "Change in A1c + 6", y = "Sex",
+       title = "A1c difference (+ 6) by Sex") +
+  guides(fill = "none")
+
+p2 <- ggplot(dm6, aes(x = sqrt(a1c_diff_p6), y = sex)) +
+  geom_violin() + geom_boxplot(aes(fill = sex), width = 0.3) +
+  labs(x = "Square Root of (Change in A1c + 6)", y = "Sex",
+       title = "Square Root of (A1c difference + 6) by Sex") +
+  guides(fill = "none")
+
+p1 / p2
+```
+
+## Addressing outliers?
+
+### OLS model
+
+```{r}
+#| echo: true
+
+fit5 <- lm(a1c_diff ~ sex, data = dm6)
+
+model_parameters(fit5, ci = 0.90)
+```
+
+- Male subjects had A1c changes that were 0.28 larger than females, on average, with 90% uncertainty interval (0, 0.56) according to our OLS model (pooled t test.)
+
+## Addressing outliers?
+
+### Bayesian model
+
+```{r}
+#| echo: true
+set.seed(20240912)
+fit6 <- stan_glm(a1c_diff ~ sex, data = dm6, refresh = 0)
+
+model_parameters(fit6, ci = 0.90)
+```
+
+- Male subjects had A1c changes that were 0.28 larger than females, on average, with 90% uncertainty interval (0, 0.57) according to our Bayesian model.
+
+## Addressing outliers?
+
+### Bootstrap with `boot.t.test`
+
+```{r}
+#| echo: true
+set.seed(20240912)
+boot.t.test(a1c_diff ~ sex, data = dm6, conf.level = 0.90)
+```
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```
+

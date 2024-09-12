@@ -1372,20 +1372,18 @@ Thomas E. Love, Ph.D.
 <div class="cell">
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode numberSource r number-lines code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href></a><span class="fu">set.seed</span>(<span class="dv">431</span>)</span>
 <span id="cb6-2"><a href></a></span>
-<span id="cb6-3"><a href></a>x_med <span class="ot">&lt;-</span> dm6 <span class="sc">|&gt;</span></span>
-<span id="cb6-4"><a href></a>  <span class="fu">observe</span>(<span class="at">response =</span> a1c_diff, <span class="at">stat =</span> <span class="st">&quot;median&quot;</span>)</span>
-<span id="cb6-5"><a href></a></span>
-<span id="cb6-6"><a href></a>res1 <span class="ot">&lt;-</span> dm6 <span class="sc">|&gt;</span></span>
-<span id="cb6-7"><a href></a>  <span class="fu">specify</span>(<span class="at">response =</span> a1c_diff) <span class="sc">|&gt;</span></span>
-<span id="cb6-8"><a href></a>  <span class="fu">generate</span>(<span class="at">reps =</span> <span class="dv">2000</span>, <span class="at">type =</span> <span class="st">&quot;bootstrap&quot;</span>) <span class="sc">|&gt;</span></span>
-<span id="cb6-9"><a href></a>  <span class="fu">calculate</span>(<span class="at">stat =</span> <span class="st">&quot;median&quot;</span>) <span class="sc">|&gt;</span></span>
-<span id="cb6-10"><a href></a>  <span class="fu">get_confidence_interval</span>(<span class="at">level =</span> <span class="fl">0.90</span>, <span class="at">type =</span> <span class="st">&quot;percentile&quot;</span>)</span>
-<span id="cb6-11"><a href></a></span>
-<span id="cb6-12"><a href></a>res1 <span class="ot">&lt;-</span> res1 <span class="sc">|&gt;</span></span>
-<span id="cb6-13"><a href></a>  <span class="fu">mutate</span>(<span class="at">pt_est =</span> x_med<span class="sc">$</span>stat) <span class="sc">|&gt;</span></span>
-<span id="cb6-14"><a href></a>  <span class="fu">relocate</span>(pt_est)</span>
-<span id="cb6-15"><a href></a></span>
-<span id="cb6-16"><a href></a>res1</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb6-3"><a href></a>x_med <span class="ot">&lt;-</span> dm6 <span class="sc">|&gt;</span> <span class="fu">observe</span>(<span class="at">response =</span> a1c_diff, <span class="at">stat =</span> <span class="st">&quot;median&quot;</span>)</span>
+<span id="cb6-4"><a href></a></span>
+<span id="cb6-5"><a href></a>res1 <span class="ot">&lt;-</span> dm6 <span class="sc">|&gt;</span></span>
+<span id="cb6-6"><a href></a>  <span class="fu">specify</span>(<span class="at">response =</span> a1c_diff) <span class="sc">|&gt;</span></span>
+<span id="cb6-7"><a href></a>  <span class="fu">generate</span>(<span class="at">reps =</span> <span class="dv">2000</span>, <span class="at">type =</span> <span class="st">&quot;bootstrap&quot;</span>) <span class="sc">|&gt;</span></span>
+<span id="cb6-8"><a href></a>  <span class="fu">calculate</span>(<span class="at">stat =</span> <span class="st">&quot;median&quot;</span>) <span class="sc">|&gt;</span></span>
+<span id="cb6-9"><a href></a>  <span class="fu">get_confidence_interval</span>(<span class="at">level =</span> <span class="fl">0.90</span>, <span class="at">type =</span> <span class="st">&quot;percentile&quot;</span>)</span>
+<span id="cb6-10"><a href></a></span>
+<span id="cb6-11"><a href></a>res1 <span class="ot">&lt;-</span> res1 <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">pt_est =</span> x_med<span class="sc">$</span>stat) <span class="sc">|&gt;</span></span>
+<span id="cb6-12"><a href></a>  <span class="fu">relocate</span>(pt_est)</span>
+<span id="cb6-13"><a href></a></span>
+<span id="cb6-14"><a href></a>res1</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 1 × 3
   pt_est lower_ci upper_ci
@@ -1393,6 +1391,16 @@ Thomas E. Love, Ph.D.
 1  0.200    0.200    0.300</code></pre>
 </div>
 </div>
+</section>
+<section id="a-strategy-for-paired-samples" class="slide level2 smaller">
+<h2>A Strategy for Paired Samples</h2>
+<p>Suppose we want to estimate an uncertainty interval for the mean of a set of paired differences.</p>
+<ul>
+<li>Calculate the paired differences, then plot them.</li>
+<li>If the sample data are well described as “Normal”, then use the OLS / paired t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.</li>
+<li>If the sample data are best described as “symmetric but with outliers”, then use the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may be quite similar.</li>
+<li>If the sample data are best described as “substantially skewed”, then consider whether you actually want to summarize with the mean, and consider whether a transformation might be helpful.</li>
+</ul>
 </section>
 <section id="uncertainty-interval-assumptions-1" class="slide level2 smaller">
 <h2>Uncertainty Interval Assumptions</h2>
@@ -1784,6 +1792,18 @@ statin f [Statin] |        1.05 | 0.04 | [ 0.98,  1.13] |   1.23 | 0.220 </code>
 </div>
 <p>Subjects <em>with</em> a statin prescription have 5% higher LDL, on average, than do subjects <em>without</em>. The ratio has point estimate 1.05 and 90% interval estimate (0.98, 1.13).</p>
 </section>
+<section id="a-strategy-for-independent-samples" class="slide level2 smaller">
+<h2>A Strategy for Independent Samples</h2>
+<p>Suppose we want to estimate an uncertainty interval for the difference in means across two groups. To begin, plot the data from each sample.</p>
+<ul>
+<li>If the sample data in each group are well described as “Normal”, then use the OLS / pooled t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+<ul>
+<li>If the sample sizes are not the same, and the sample variances aren’t close to each other, consider using a Welch t procedure.</li>
+</ul></li>
+<li>If either sample’s data are “symmetric but with outliers”, then consider using the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may also be reasonable.</li>
+<li>If either sample’s data are best described as “substantially skewed”, then consider whether you actually want to summarize with the difference in means, and consider whether a transformation might be helpful.</li>
+</ul>
+</section>
 <section id="difference-in-a1c-by-sex" class="slide level2">
 <h2>Difference in A1c by Sex</h2>
 <div class="cell">
@@ -1970,6 +1990,28 @@ mean in group Female   mean in group Male
            0.2267361            0.5034091 </code></pre>
 </div>
 </div>
+</section>
+<section id="repeating-paired-samples-strategy" class="slide level2 smaller">
+<h2>Repeating: Paired Samples Strategy</h2>
+<p>Suppose we want to estimate an uncertainty interval for the mean of a set of paired differences.</p>
+<ul>
+<li>Calculate the paired differences, then plot them.</li>
+<li>If the sample data are well described as “Normal”, then use the OLS / paired t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.</li>
+<li>If the sample data are best described as “symmetric but with outliers”, then use the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may be quite similar.</li>
+<li>If the sample data are best described as “substantially skewed”, then consider whether you actually want to summarize with the mean, and consider whether a transformation might be helpful.</li>
+</ul>
+</section>
+<section id="independent-samples-strategy" class="slide level2 smaller">
+<h2>Independent Samples Strategy</h2>
+<p>Suppose we want to estimate an uncertainty interval for the difference in means across two groups. To begin, plot the data from each sample.</p>
+<ul>
+<li>If the sample data in each group are well described as “Normal”, then use the OLS / pooled t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+<ul>
+<li>If the sample sizes are not the same, and the sample variances aren’t close to each other, consider using a Welch t procedure.</li>
+</ul></li>
+<li>If either sample’s data are “symmetric but with outliers”, then consider using the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may also be reasonable.</li>
+<li>If either sample’s data are best described as “substantially skewed”, then consider whether you actually want to summarize with the difference in means, and consider whether a transformation might be helpful.</li>
+</ul>
 </section>
 <section id="session-information" class="slide level2">
 <h2>Session Information</h2>

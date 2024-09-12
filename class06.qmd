@@ -74,7 +74,6 @@ dim(dm6)
 
 Main check in data: Normal distribution?
 
-
 ## Difference in A1c (end - baseline)
 
 ```{r}
@@ -151,8 +150,7 @@ This is from the `infer` package...
 #| echo: true
 set.seed(431)
 
-x_med <- dm6 |>
-  observe(response = a1c_diff, stat = "median")
+x_med <- dm6 |> observe(response = a1c_diff, stat = "median")
 
 res1 <- dm6 |>
   specify(response = a1c_diff) |>
@@ -160,12 +158,20 @@ res1 <- dm6 |>
   calculate(stat = "median") |>
   get_confidence_interval(level = 0.90, type = "percentile")
 
-res1 <- res1 |>
-  mutate(pt_est = x_med$stat) |>
+res1 <- res1 |> mutate(pt_est = x_med$stat) |>
   relocate(pt_est)
 
 res1
 ```
+
+## A Strategy for Paired Samples {.smaller}
+
+Suppose we want to estimate an uncertainty interval for the mean of a set of paired differences.
+
+- Calculate the paired differences, then plot them.
+- If the sample data are well described as "Normal", then use the OLS / paired t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+- If the sample data are best described as "symmetric but with outliers", then use the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may be quite similar.
+- If the sample data are best described as "substantially skewed", then consider whether you actually want to summarize with the mean, and consider whether a transformation might be helpful.
 
 ## Uncertainty Interval Assumptions {.smaller}
 
@@ -434,6 +440,15 @@ model_parameters(fit3, exponentiate = TRUE, ci = 0.90)
 
 Subjects *with* a statin prescription have 5% higher LDL, on average, than do subjects *without*. The ratio has point estimate 1.05 and 90% interval estimate (0.98, 1.13).
 
+## A Strategy for Independent Samples {.smaller}
+
+Suppose we want to estimate an uncertainty interval for the difference in means across two groups. To begin, plot the data from each sample.
+
+- If the sample data in each group are well described as "Normal", then use the OLS / pooled t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+    - If the sample sizes are not the same, and the sample variances aren't close to each other, consider using a Welch t procedure.
+- If either sample's data are "symmetric but with outliers", then consider using the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may also be reasonable.
+- If either sample's data are best described as "substantially skewed", then consider whether you actually want to summarize with the difference in means, and consider whether a transformation might be helpful.
+
 ## Difference in A1c by Sex
 
 ```{r}
@@ -530,6 +545,24 @@ model_parameters(fit6, ci = 0.90)
 set.seed(20240912)
 boot.t.test(a1c_diff ~ sex, data = dm6, conf.level = 0.90)
 ```
+
+## Repeating: Paired Samples Strategy {.smaller}
+
+Suppose we want to estimate an uncertainty interval for the mean of a set of paired differences.
+
+- Calculate the paired differences, then plot them.
+- If the sample data are well described as "Normal", then use the OLS / paired t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+- If the sample data are best described as "symmetric but with outliers", then use the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may be quite similar.
+- If the sample data are best described as "substantially skewed", then consider whether you actually want to summarize with the mean, and consider whether a transformation might be helpful.
+
+## Independent Samples Strategy {.smaller}
+
+Suppose we want to estimate an uncertainty interval for the difference in means across two groups. To begin, plot the data from each sample.
+
+- If the sample data in each group are well described as "Normal", then use the OLS / pooled t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+    - If the sample sizes are not the same, and the sample variances aren't close to each other, consider using a Welch t procedure.
+- If either sample's data are "symmetric but with outliers", then consider using the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may also be reasonable.
+- If either sample's data are best described as "substantially skewed", then consider whether you actually want to summarize with the difference in means, and consider whether a transformation might be helpful.
 
 ## Session Information
 

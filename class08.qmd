@@ -1,0 +1,453 @@
+---
+title: "431 Class 08"
+author: Thomas E. Love, Ph.D.
+date: "2024-09-19"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 08 | 2024-09-19 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+- One-Factor Analysis of Variance
+  - Using Regression to Develop an ANOVA model
+  - Methods for pairwise multiple comparisons
+  - Checking Model Assumptions
+  - Bayesian fitting of an ANOVA model
+
+## Load packages and set theme
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+
+library(readxl)   # to read in an .xlsx file
+
+library(car)         
+library(rstanarm)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(comment = NA)
+
+source("c08/data/Love-431.R") # for the lovedist() function
+```
+
+## Importing Data / Creating Factors
+
+```{r}
+#| echo: true
+ohio20 <- read_xlsx("c08/data/ohio_2020.xlsx") |>
+  mutate(behavior = Hmisc::cut2(rk_behavior, g = 4),
+         clin_care = Hmisc::cut2(rk_clin_care, g = 3)) |>
+  mutate(behavior = fct_recode(behavior,
+            "Best" = "[ 1,23)", "High" = "[23,45)",
+            "Low" = "[45,67)", "Worst" = "[67,88]")) |>
+  mutate(clin_care = fct_recode(clin_care,
+            "Strong" = "[ 1,31)", "Middle" = "[31,60)",
+            "Weak" = "[60,88]")) |>
+  select(FIPS, state, county, outcomes, behavior, clin_care, 
+         everything())
+```
+
+## Any missing values?
+
+```{r}
+#| echo: true
+data_codebook(ohio20)
+```
+
+## Outcomes by Behavior Groups
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(ohio20, aes(x = outcomes, y = behavior)) +
+  geom_violin() +
+  geom_boxplot(aes(fill = behavior), width = 0.2) +
+  stat_summary(fun = mean, geom = "point", 
+               shape = 16, size = 3, col = "white") +
+  scale_fill_metro_d() +
+  guides(fill = "none") +
+  labs(x = "Health Outcomes", y = "Behavior Group",
+       title = "Health Outcomes by Behavior Group")
+```
+
+
+## Building the Linear Model
+
+Do we see meaningful differences in population means of `outcomes` across `behavior` groups? 
+
+```{r}
+#| echo: true
+model_one <- lm(outcomes ~ behavior, data = ohio20)
+
+model_parameters(model_one, ci = 0.90)
+```
+
+## ANOVA Table
+
+```{r}
+#| echo: true
+
+anova(model_one)
+```
+
+## Estimate Means with 90% CIs
+
+```{r}
+#| echo: true
+means_one <- estimate_means(model_one, ci = 0.90)
+
+means_one
+```
+
+### Plot the means
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+plot(visualisation_recipe(means_one, 
+                show_data = c("violin", "jitter")))
+```
+
+## What's Left? (Multiple Comparisons)
+
+- Can we identify pairwise comparisons of means that show meaningful differences?
+- Can we build a confidence interval procedure that protects against Type I error expansion due to multiple comparisons?
+
+## Two Methods for Multiple Comparisons
+
+There are two (main) methods we'll study to estimate the difference between specific pairs of means with uncertainty intervals, while dealing with the problem of multiple comparisons.
+
+- Holm-Bonferroni pairwise comparisons
+- Tukey's HSD (Honestly Significant Differences) approach
+
+Just for fun, we'll use a 99% confidence level today.
+
+## Compare `behavior` group means?
+
+ANOVA suggests that the means aren't likely to all be the same, but we really want to make pairwise comparisons...
+
+```{r}
+#| echo: true
+estimate_means(model_one, ci = 0.99)
+```
+
+For example, is Best meaningfully different from High?
+
+## Could we just run a bunch of t tests?
+
+This approach assumes that you need to make no adjustment for the fact that you are doing multiple comparisons, simultaneously.
+
+```{r}
+#| echo: true
+estimate_contrasts(model_one, ci = 0.99, p_adjust = "none")
+```
+
+## The problem of Multiple Comparisons
+
+- The more comparisons you do simultaneously, the more likely you are to make an error.
+
+In the worst case scenario, suppose you do two tests - first A vs. B and then A vs. C, each at the 99% confidence level.
+
+- What is the combined error rate across those two t tests?
+
+## The problem of Multiple Comparisons
+
+Run the first test. Make a Type I error 1% of the time.
+
+A vs B Type I error | Probability
+-----------: | -----------
+Yes | 0.01
+No  | 0.99
+
+Now, run the second test. Assume (perhaps wrongly) that comparing A to C is independent of your A-B test result. What is the error rate now?
+
+
+## The problem of Multiple Comparisons
+
+Assuming there is a 1% chance of making an error in either test, independently ...
+
+-- | Error in A vs. C  | No Error | Total
+----------------------: | --------: | --------: | ----:
+Type I error in A vs. B | 0.0001 | 0.0099 | 0.01
+No Type I error in A-B  | 0.0099 | 0.9801 | 0.99
+Total                   | 0.01 | 0.99 | 1.00
+
+So you will make an error in the A-B or A-C comparison **1.99%** of the time, rather than the nominal $\alpha = 0.01$ error rate.
+
+## But we're building SIX tests {.smaller}
+
+1. Best vs. High
+2. Best vs. Low
+3. Best vs. Worst
+4. High vs. Low
+5. High vs. Worst
+6. Low vs. Worst
+
+and if they were independent, and each done at a 5% error rate, we could still wind up with an error rate of 
+
+$.05 + (.95)(.05) + (.95)(.95)(.05) + (.95)^3(.05) + (.95)^4(.05) + (.95)^5(.05)$ = .265
+
+Or worse, if they're not independent.
+
+## The Bonferroni Method
+
+If we do 6 tests, we could reduce the necessary $\alpha$ to 0.01 / 6 = 0.00167 and that maintains an error rate no higher than $\alpha = 0.01$ across the 6 tests.
+
+## Better Approach: Holm-Bonferroni
+
+Suppose you have $m$ comparisons, with p-values sorted from low to high as $p_1$, $p_2$, ..., $p_m$.
+
+- Is $p_1 < \alpha/m$? If so, reject $H_1$ and continue, otherwise STOP.
+- Is $p_2 < \alpha/(m-1)$? If so, reject $H_2$ and continue, else STOP.
+- and so on...
+
+## Holm-Bonferroni Approach
+
+This is uniformly more powerful than Bonferroni, while preserving the overall false positive rate at $\alpha$. It's also the default choice of `estimate_contrasts()`.
+
+```{r}
+#| echo: true
+estimate_contrasts(model_one, ci = 0.99, p_adjust = "holm")
+```
+
+## Get the Holm results into a tibble
+
+```{r}
+#| echo: true
+
+con_holm <- estimate_contrasts(model_one, ci = 0.99, p_adjust = "holm")
+
+con_holm_tib <- tibble(con_holm) |>  
+  mutate(contr = str_c(Level1, " - ", Level2))
+
+con_holm_tib |> head()
+```
+
+## Plot the Holm results
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(con_holm_tib, aes(x = contr, y = Difference)) +
+  geom_point(size = 3, col = "purple") +
+  geom_errorbar(aes(ymin = CI_low, ymax = CI_high)) +
+  geom_hline(yintercept = 0, col = "red", lty = "dashed") +
+  labs(title = "Holm 99% HSD Intervals for Health Outcomes",
+       x = "Contrast", 
+       y = "Difference in Health Outcomes Score")
+```
+
+
+## Tukey's HSD Intervals
+
+Tukey's HSD approach is a better choice for pre-planned comparisons with a balanced (or nearly balanced) design. 
+
+```{r}
+#| echo: true
+estimate_contrasts(model_one, ci = 0.99, p_adjust = "tukey")
+```
+
+## Plot Tukey Intervals
+
+```{r}
+con_tukey <- estimate_contrasts(model_one, ci = 0.99, p_adjust = "tukey")
+
+con_tukey_tib <- tibble(con_tukey) |>  
+  mutate(contr = str_c(Level1, " - ", Level2))
+
+ggplot(con_tukey_tib, aes(y = contr, x = Difference)) +
+  geom_point(size = 3, color = "firebrick") +
+  geom_errorbar(aes(xmin = CI_low, xmax = CI_high)) +
+  geom_vline(xintercept = 0, col = "red", lty = "dashed") +
+  labs(title = "Tukey 99% HSD Intervals for Health Outcomes",
+       y = "Contrast", 
+       x = "Difference in Health Outcomes Score")
+```
+
+## ANOVA Assumptions {.smaller}
+
+The assumptions behind analysis of variance are those of a linear model. Of specific interest are:
+
+- The samples obtained from each group are independent.
+- Ideally, the samples from each group are a random sample from the population described by that group.
+- In the population, the variance of the outcome in each group is equal. (This is less of an issue if our study involves a balanced design.)
+- In the population, we have Normal distributions of the outcome in each group.
+
+Happily, the ANOVA F test is fairly robust to violations of the Normality assumption.
+
+## Checking the ANOVA Model
+
+We check assumptions of linear models like ANOVA with residual plots, for instance with a Normal Q-Q plot.
+
+```{r}
+#| echo: true
+plot(model_one, which = 2)
+```
+
+## More Serious Checking to come
+
+```{r}
+#| echo: true
+
+plot(check_model(model_one))
+```
+
+## Do we need to transform?
+
+```{r}
+#| echo: true
+#| output-location: slides
+
+ggplot(ohio20, aes(sample = outcomes)) +
+  geom_qq() + geom_qq_line(col = "red") +
+  facet_wrap(~ behavior)
+```
+
+
+## Transformation?
+
+Would a transformation have been helpful in this setting?
+
+Our model was: `lm(outcomes ~ behavior, data = ohio20)`
+
+```{r}
+#| echo: true
+ohio20 |> group_by(behavior) |> summarize(min(outcomes))
+```
+
+- Remember that the Box-Cox method requires our response variable (here `outcomes`) to be strictly positive.
+
+## Does Box-Cox make a suggestion?
+
+```{r}
+#| echo: true
+ohio20 <- ohio20 |> mutate(out = outcomes + 3)
+model2 <- lm(out ~ behavior, data = ohio20)
+boxCox(model2)
+```
+
+## Can we avoid assuming equal population variances?
+
+Yes, but this isn't exciting if we have a balanced design.
+
+```{r}
+#| echo: true
+oneway.test(outcomes ~ behavior, data = ohio20)
+```
+
+- Note that this approach uses a fractional degrees of freedom calculation in the denominator.
+
+## The Kruskal-Wallis Test
+
+If you thought the data were severely skewed, you might try:
+
+```{r}
+#| echo: true
+kruskal.test(outcomes ~ behavior, data = ohio20)
+```
+
+- $H_0$: The four `behavior` groups have the same center to their `outcomes` distributions.
+- $H_A$: At least one group has a shifted distribution, with a different center to its `outcomes`.
+
+What would be the conclusion here?
+
+## Bayesian Linear Model for ANOVA
+
+```{r}
+#| echo: true
+
+set.seed(20240919)
+model_1b <- stan_glm(outcomes ~ behavior, data = ohio20, refresh = 0)
+
+model_parameters(model_1b, ci = 0.99)
+```
+
+## Again, more serious checking to come
+
+```{r}
+#| echo: true
+
+plot(check_model(model_1b))
+```
+
+## Estimate Means after Bayesian Fit
+
+```{r}
+#| echo: true
+estimate_means(model_1b, ci = 0.99)
+```
+
+## Holm 99% CIs after Bayesian fit
+
+```{r}
+#| echo: true
+
+estimate_contrasts(model_1b, ci = 0.99, p_adjust = "Holm")
+```
+
+## Comparison of Holm 99% CIs
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+con_ols <- as_tibble(estimate_contrasts(model_one, ci = 0.99, 
+                                        p_adjust = "Holm")) |>  
+  mutate(contr = str_c(Level1, " - ", Level2))
+
+con_bay <- as_tibble(estimate_contrasts(model_1b, ci = 0.99, 
+                                        p_adjust = "Holm")) |>  
+  mutate(contr = str_c(Level1, " - ", Level2))
+
+p1 <- ggplot(con_ols, aes(y = contr, x = Difference)) +
+  geom_point(size = 3, color = "firebrick") +
+  geom_errorbar(aes(xmin = CI_low, xmax = CI_high)) +
+  geom_vline(xintercept = 0, col = "red", lty = "dashed") +
+  labs(title = "OLS fit",
+    subtitle = "Tukey 99% HSD Intervals for Health Outcomes",
+    y = "Contrast", x = "Difference in Health Outcomes Score")
+
+p2 <- ggplot(con_bay, aes(y = contr, x = Difference)) +
+  geom_point(size = 3, color = "navy") +
+  geom_errorbar(aes(xmin = CI_low, xmax = CI_high)) +
+  geom_vline(xintercept = 0, col = "red", lty = "dashed") +
+  labs(title = "Bayesian fit",
+    subtitle = "Tukey 99% HSD Intervals for Health Outcomes",
+    y = "Contrast", x = "Difference in Health Outcomes Score")
+
+p1 + p2
+```
+
+## K Samples: Comparing Means {.smaller}
+
+1. What is the outcome under study?
+2. What are the (in this case, $K \geq 2$) treatment/exposure groups?
+3. Were the data in fact collected using independent samples?
+4. Are the data random samples from the population(s) of interest? Or is there at least a reasonable argument for generalizing from the samples to the population(s)?
+5. What is the confidence level we require?
+6. Are we doing one-sided or two-sided testing? (usually 2-sided)
+7. What does the distribution of each individual sample tell us about which inferential procedure to use?
+8. Are there meaningful differences between population means?
+9. Can we identify pairwise comparisons of means that show meaningful differences using an appropriate procedure that protects against Type I error expansion due to multiple comparisons?
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

@@ -1,0 +1,516 @@
+---
+title: "431 Class 07"
+author: Thomas E. Love, Ph.D.
+date: "2024-09-17"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 07 | 2024-09-17 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda 
+
+- Building an Uncertainty Interval when we have Two Independent Samples
+  - Finishing the Example from Last Class
+- One-Factor Analysis of Variance: Comparing More than Two Independent Samples
+  - Using Regression to Develop an ANOVA model
+
+## Load packages and set theme
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+library(knitr)
+library(readxl)   # to read in an .xlsx file
+library(car)
+library(ggdist)   # for raincloud plots
+library(MKinfer)
+library(patchwork)
+library(rstanarm)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(comment = NA)
+
+source("c07/data/Love-431.R") # for the lovedist() function
+```
+
+## Returning to the DM-464 data
+
+```{r}
+#| echo: true
+dm7 <- read_csv("c07/data/dm464_class07.csv", show_col_types = FALSE) |>
+  janitor::clean_names() |>
+  mutate(across(where(is.character), as_factor)) |>
+  mutate(statin_f = as_factor(statin),
+         statin_f = fct_recode(statin_f, 
+                               "Statin" = "1", "No Statin" = "0")) |>
+  mutate(id_code = as.character(id_code)) |>
+  mutate(a1c_diff = a1c_end - a1c_base)
+
+dim(dm7)
+```
+
+## A Strategy for Independent Samples {.smaller}
+
+Suppose we want to estimate an uncertainty interval for the difference in means across two groups. To begin, plot the data from each sample.
+
+- If the sample data in each group are well described as "Normal", then use the OLS / pooled t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+    - If the sample sizes are not the same, and the sample variances aren't close to each other, consider using a Welch t procedure.
+- If either sample's data are "symmetric but with outliers", then consider using the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may also be reasonable.
+- If either sample's data are best described as "substantially skewed", then consider whether you actually want to summarize with the difference in means, and consider whether a transformation might be helpful.
+
+## Difference in A1c by Sex
+
+```{r}
+#| echo: true
+
+ggplot(dm7, aes(x = a1c_diff, y = sex)) +
+  geom_violin() + geom_boxplot(aes(fill = sex), width = 0.3) +
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3, col = "white") +
+  labs(x = "Change in A1c", y = "Sex",
+       title = "Difference in A1c (end - base) by Sex") +
+  guides(fill = "none")
+```
+
+## Numerical Summary {.smaller}
+
+```{r}
+#| echo: true
+dm7 |> group_by(sex) |> 
+  reframe(lovedist(a1c_diff)) |> 
+  print_md(digits = 3)
+```
+
+- Observed difference in sample means is 0.503 - 0.227 = 0.276
+- Do we have a balanced design?
+- Do we feel comfortable pooling these standard deviations?
+- Do we feel comfortable assuming Normality for each sex?
+
+## Might a transformation help here?
+
+Some of the changes in A1c are negative (minimum was -5.9)
+
+```{r}
+#| echo: true
+
+dm7 <- dm7 |> mutate(a1c_diff_p6 = a1c_diff + 6)
+fit4 <- lm(a1c_diff_p6 ~ sex, data = dm7)
+boxCox(fit4)
+```
+
+## Does using a square root help us here?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(dm7, aes(x = a1c_diff_p6, y = sex)) +
+  geom_violin() + geom_boxplot(aes(fill = sex), width = 0.3) +
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3, col = "white") +
+  labs(x = "Change in A1c + 6", y = "Sex",
+       title = "A1c difference (+ 6) by Sex") +
+  guides(fill = "none")
+
+p2 <- ggplot(dm7, aes(x = sqrt(a1c_diff_p6), y = sex)) +
+  geom_violin() + geom_boxplot(aes(fill = sex), width = 0.3) +
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3, col = "white") +
+  labs(x = "Square Root of (Change in A1c + 6)", y = "Sex",
+       title = "Square Root of (A1c difference + 6) by Sex") +
+  guides(fill = "none")
+
+p1 / p2
+```
+
+## Addressing outliers?
+
+### OLS model
+
+```{r}
+#| echo: true
+
+fit5 <- lm(a1c_diff ~ sex, data = dm7)
+
+model_parameters(fit5, ci = 0.90)
+```
+
+- Male subjects had A1c changes that were 0.28 larger than females, on average, with 90% uncertainty interval (0, 0.56) according to our OLS model (pooled t test.)
+
+## Addressing outliers?
+
+### Bayesian model
+
+```{r}
+#| echo: true
+set.seed(20240912)
+fit6 <- stan_glm(a1c_diff ~ sex, data = dm7, refresh = 0)
+
+model_parameters(fit6, ci = 0.90)
+```
+
+- Male subjects had A1c changes that were 0.28 larger than females, on average, with 90% uncertainty interval (0, 0.57) according to our Bayesian model.
+
+## Addressing outliers?
+
+### Bootstrap with `boot.t.test` from `MKinfer`
+
+```{r}
+#| echo: true
+set.seed(20240912)
+boot.t.test(a1c_diff ~ sex, data = dm7, conf.level = 0.90)
+```
+
+## Comparing Our Results
+
+These comparisons describe the Female - Male differences. The point estimate is -0.28.
+
+Method | 90% Uncertainty Interval
+:------: | :--------:
+OLS / pooled t | (-0.56, 0.00)
+Welch t | (-0.56, 0.01)
+Bayesian model | (-0.57, 0.00)
+Bootstrap^[without pooling the standard deviations] | (-0.57, 0.00)
+
+
+## 2 Independent Samples Strategy {.smaller}
+
+Suppose we want to estimate an uncertainty interval for the difference in means across two groups. To begin, plot the data from each sample.
+
+- If the sample data in each group are well described as "Normal", then use the OLS / pooled t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+    - If the sample sizes are not the same, and the sample variances aren't close to each other, consider using a Welch t procedure.
+- If either sample's data are "symmetric but with outliers", then consider using the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may also be reasonable.
+- If either sample's data are best described as "substantially skewed", then consider whether you actually want to summarize with the difference in means, and consider whether a transformation might be helpful.
+
+## Paired Samples Strategy {.smaller}
+
+Suppose we want to estimate an uncertainty interval for the mean of a set of paired differences.
+
+- Calculate the paired differences, then plot them.
+- If the sample data are well described as "Normal", then use the OLS / paired t procedure to obtain a confidence interval, or a Bayesian model to obtain a credible interval.
+- If the sample data are best described as "symmetric but with outliers", then use the bootstrap to obtain a confidence interval, although an OLS or Bayesian result may be quite similar.
+- If the sample data are best described as "substantially skewed", then consider whether you actually want to summarize with the mean, and consider whether a transformation might be helpful.
+
+# What if we have more than two independent samples?
+
+## The `ohio_2020` data {.smaller}
+
+`ohio_2020.xlsx` rows describe Ohio's 88 counties:
+
+- `FIPS` code (identifier for mapping), `state` and `county` name
+- health outcomes (standardized: more positive means **better** outcomes, because we've taken the negative of the Z score CHR provides)
+- health behavior ranking (1-88, we'll divide into 4 groups)
+- clinical care ranking (1-88, we'll split into 3 groups)
+- and some other variables
+
+### Sources (these bullets are links)
+
+- [County Health Rankings](https://www.countyhealthrankings.org/app/ohio/2020/downloads) (2020 Ohio Data)
+- [Wikipedia for 2016 Election Results](https://en.wikipedia.org/wiki/2016_United_States_presidential_election_in_Ohio#By_county)
+
+## Importing Data / Creating Factors
+
+```{r}
+#| echo: true
+ohio20 <- read_xlsx("c07/data/ohio_2020.xlsx") |>
+  mutate(behavior = Hmisc::cut2(rk_behavior, g = 4),
+         clin_care = Hmisc::cut2(rk_clin_care, g = 3)) |>
+  mutate(behavior = fct_recode(behavior,
+            "Best" = "[ 1,23)", "High" = "[23,45)",
+            "Low" = "[45,67)", "Worst" = "[67,88]")) |>
+  mutate(clin_care = fct_recode(clin_care,
+            "Strong" = "[ 1,31)", "Middle" = "[31,60)",
+            "Weak" = "[60,88]")) |>
+  select(FIPS, state, county, outcomes, behavior, clin_care, 
+         everything())
+```
+
+## A Quick Look at the Data
+
+```{r}
+#| echo: true
+ohio20 |> filter(county == "Cuyahoga") |>
+  select(FIPS, county, outcomes, behavior, clin_care) 
+```
+
+```{r}
+#| echo: true
+#| fig-height: 2
+ggplot(ohio20, aes(x = "", y = outcomes)) + geom_violin(fill = "orange") +
+  geom_boxplot(width = 0.4) +
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3, col = "purple") +
+  coord_flip() + labs(x = "")
+```
+
+## Key Measure Details
+
+- **outcomes** = quantity that describes the county's premature death and quality of life results, weighted equally and standardized (z scores).
+  - Higher (more positive) values indicate better outcomes in this county.
+
+## Key Measure Details
+
+- **behavior** = (Best/High/Low/Worst) reflecting adult smoking, obesity, food environment, inactivity, exercise, drinking, alcohol-related driving deaths, sexually transmitted infections and teen births. 
+  - Counties in the Best group had the best behavior results.
+
+## Key Measure Details
+
+- **clin_care** = (Strong/Middle/Weak) reflects rates of uninsured, care providers, preventable hospital stays, diabetes monitoring and mammography screening.
+  - Strong means that clinical care is strong in this county.
+
+### Today's Question
+
+1. How do average health outcomes vary across groups of counties defined by health behavior?
+
+## $K (\geq 2)$ Samples: Comparing Means {.smaller}
+
+1. What is the outcome under study?
+2. What are the (in this case, $K \geq 2$) treatment/exposure groups?
+3. Were the data in fact collected using independent samples?
+4. Are the data random samples from the population(s) of interest? Or is there at least
+a reasonable argument for generalizing from the samples to the population(s)?
+5. What is the uncertainty level we require?
+6. Are we doing one-sided or two-sided testing? (usually 2-sided)
+7. What does the distribution of each individual sample tell us about which inferential procedure to use?
+8. Are there meaningful differences between population means?
+9. Can we identify pairwise comparisons of means that show meaningful differences using an appropriate procedure that protects against Type I error expansion due to multiple comparisons? (to be discussed next time)
+
+## Our Question
+
+Do average health outcomes differ by health behavior?
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(ohio20, aes(x = behavior, y = outcomes, 
+                   fill = behavior)) +
+  geom_violin(alpha = 0.25) +
+  geom_boxplot(width = 0.25) +
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3, col = "white") +
+  guides(fill = "none") + 
+  scale_fill_brewer(palette = "Spectral", direction = -1) +
+  labs(x = "Health Behavior Group", 
+       y = "Health Outcomes (higher = better health)",
+       title = "Health Outcomes across Behavior Groups",
+       subtitle = "Ohio's 88 counties, 2020 County Health Rankings",
+       caption = "Source: https://www.countyhealthrankings.org/health-data/ohio/data-and-resources")
+```
+
+## Question 1 Raincloud Plots?
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(ohio20, aes(x = behavior, y = outcomes, 
+                   fill = behavior)) +
+  ggdist::stat_halfeye(adjust = 0.5, width = 0.3, .width = c(0.5, 1)) +
+  ggdist::stat_dots(side = "left", dotsize = 1, justification = 1.05, binwidth = 0.1) +
+  guides(fill = "none") + 
+  scale_fill_brewer(palette = "Spectral", direction = -1) +
+  labs(x = "Health Behavior Group", 
+       y = "Health Outcomes (higher = better health)",
+       title = "Health Outcomes across Behavior Groups",
+       subtitle = "Ohio's 88 counties, 2020 County Health Rankings",
+       caption = "Source: https://www.countyhealthrankings.org/health-data/ohio/data-and-resources")
+```
+
+
+## Numerical Summaries by Group {.smaller}
+
+How do average health outcomes vary across groups of counties defined by health behavior?
+
+```{r}
+#| echo: true
+
+ohio20 |>
+  group_by(behavior) |>
+  reframe(lovedist(outcomes)) |>
+  kable(digits = 2)
+```
+
+
+Note that there is no missing data here.
+
+## Analysis of Variance: Question 1
+
+Does the mean `outcomes` result differ meaningfully across the `behavior` groups?
+
+$$
+H_0: \mu_{Best} = \mu_{High} = \mu_{Low} = \mu_{Worst} \mbox{ vs. } \\
+H_A: \mbox{At least one } \mu \mbox{ is different.}
+$$
+
+To test this set of hypotheses, we will build a linear model to predict each county's outcome based on what behavior group the county is in.
+
+## Building the Linear Model
+
+Do we see meaningful differences in population means of `outcomes` across `behavior` groups? 
+
+```{r}
+#| echo: true
+model_one <- lm(outcomes ~ behavior, data = ohio20)
+
+model_parameters(model_one, ci = 0.90)
+```
+
+How do we interpret this result?
+
+
+## Meaning of indicator variables?
+
+```
+outcomes = 0.96 - 0.71 behaviorHigh 
+           - 1.14 behaviorLow - 2.01 behaviorWorst
+```
+
+group  | `behaviorHigh` | `behaviorLow` | `behaviorWorst`
+----: | :-------: | :--------: | :--------:
+Best  | 0 | 0 | 0
+High  | 1 | 0 | 0
+Low   | 0 | 1 | 0
+Worst | 0 | 0 | 1
+
+- So what is the predicted `outcomes` score for a county in the High behavior group, according to this model?
+
+## Interpreting the Indicator Variables
+
+```
+outcomes = 0.96 - 0.71 behaviorHigh 
+           - 1.14 behaviorLow - 2.01 behaviorWorst
+```
+
+What predictions does the model make? Do these make sense?
+
+group  | `High` | `Low` | `Worst` | Prediction
+----: | :-----: | :------: | :------: | --------------
+Best  | 0 | 0 | 0 | 0.96
+High  | 1 | 0 | 0 | 0.96 - 0.71 = 0.25
+Low   | 0 | 1 | 0 | 0.96 - 1.14 = -0.18
+Worst | 0 | 0 | 1 | 0.96 - 2.01 = -1.05
+
+## Interpreting the Indicator Variables
+
+```
+outcomes = 0.96 - 0.71 behaviorHigh 
+           - 1.14 behaviorLow - 2.01 behaviorWorst
+```
+
+```{r}
+#| echo: true
+ohio20 |> group_by(behavior) |>
+  summarise(n = n(), mean = round_half_up(mean(outcomes),2)) |> 
+  kable(digits = 2) 
+```
+
+
+## ANOVA for Linear Model
+
+Do we see meaningful differences in mean outcome across the behavior groups?
+
+$$
+H_0: \mu_{Best} = \mu_{High} = \mu_{Low} = \mu_{Worst} \mbox{ vs. } \\
+H_A: \mbox{At least one } \mu \mbox{ is different.}
+$$
+
+```{r}
+#| echo: true
+anova(model_one)
+```
+
+## So, what's in the ANOVA table? (df) {.smaller}
+
+The ANOVA table reports here on a single **factor** (behavior group) with 4 levels, and on the residual variation in health **outcomes**.
+
+```{r}
+#| echo: true
+anova(model_one)[1:2]
+```
+
+**Degrees of Freedom** (df) is an index of sample size...
+
+- df for our factor (behavior) is one less than the number of categories. We have four behavior groups, so 3 degrees of freedom.
+- Adding df(behavior) + df(Residuals) = 3 + 84 = 87 = df(Total), one less than the number of observations (counties) in Ohio.
+- *n* observations and *g* groups yield $n - g$ residual df in a one-factor ANOVA table.
+
+## ANOVA table: Sum of Squares {.smaller}
+
+```{r}
+#| echo: true
+anova(model_one)[1:3]
+```
+
+**Sum of Squares** (`Sum Sq`, or SS) is an index of variation...
+
+- SS(factor), here SS(`behavior`) measures the amount of variation accounted for by the `behavior` groups in our `model_one`.
+- The total variation in `outcomes` to be explained by the model is SS(factor) + SS(Residuals) = SS(Total) in a one-factor ANOVA table.
+- We describe the proportion of variation explained by a one-factor ANOVA model with $\eta^2$ ("eta-squared": same as $R^2$ in regression)
+
+$$
+\eta^2 = \frac{SS(\mbox{behavior})}{SS(\mbox{Total})} = \frac{46.421}{46.421+22.519} = \frac{46.421}{68.94} \approx 0.673
+$$
+
+## ANOVA table: (Mean Square, F ratio) {.smaller}
+
+```{r}
+#| echo: true
+anova(model_one)[1:4]
+```
+
+**Mean Square** (`Mean Sq`, or MS) = Sum of Squares / df
+
+$$
+MS(\mbox{behavior}) = \frac{SS(\mbox{behavior})}{df(\mbox{behavior})} = \frac{46.421}{3} \approx 15.4736
+$$
+
+- MS(Residuals) estimates the **residual variance**, the square of the residual standard deviation (residual standard error in earlier work).
+- The ratio of MS values is the ANOVA **F value**.
+
+$$
+{\mbox{ANOVA }} F = \frac{MS(\mbox{behavior})}{MS(\mbox{Residuals})} = \frac{15.4736}{0.2681} \approx 57.718
+$$
+
+
+## ANOVA Table p value
+
+```{r}
+#| echo: true
+anova(model_one)
+```
+
+- The *p* value is derived from the ANOVA F statistic, as compared to the F distribution.
+- Which F distribution is specified by the two degrees of freedom values...
+
+```{r}
+#| echo: true
+pf(57.718, df1 = 3, df2 = 84, lower.tail = FALSE)
+```
+
+## Alternative ANOVA display
+
+```{r}
+#| echo: true
+summary(aov(model_one))
+```
+
+```{r}
+#| echo: true
+estimate_means(model_one, ci = 0.90)
+```
+
+
+So, what might we conclude? Is this a surprise?
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```
+

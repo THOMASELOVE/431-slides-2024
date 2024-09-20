@@ -247,7 +247,7 @@ ggplot(con_holm_tib, aes(x = contr, y = Difference)) +
   geom_point(size = 3, col = "purple") +
   geom_errorbar(aes(ymin = CI_low, ymax = CI_high)) +
   geom_hline(yintercept = 0, col = "red", lty = "dashed") +
-  labs(title = "Holm 99% HSD Intervals for Health Outcomes",
+  labs(title = "Holm 99% Intervals for Health Outcomes",
        x = "Contrast", 
        y = "Difference in Health Outcomes Score")
 ```

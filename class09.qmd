@@ -1,0 +1,1414 @@
+---
+title: "431 Classes 09 and 10"
+author: Thomas E. Love, Ph.D.
+date: "2024-09-24"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    logo: 431_2024_logo.png
+    footer: "431 Classes 09 & 10 | 2024-09-24/26 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## This Week's Agenda {.smaller}
+
+- Managing the Favorite Movies Data
+  - Ingesting data from a Google Sheet
+  - Checking the variables
+  - Some semi-sophisticated cleaning: `imdb_categories`
+  - What makes a "good" research question?
+- Review of Independent Samples Comparisons (including ANOVA)
+- Simple Linear Regression Models
+  - Fitting an OLS model
+  - Performance of an OLS model
+  - Checking the Fit
+  - Transformations
+  - What makes a "good" fit?
+
+## Load packages and set theme
+
+```{r}
+#| echo: true
+#| message: false
+
+library(ggrepel)        ## new: for building plots with text
+library(glue)           ## new: for combining strings
+library(googlesheets4)  ## new: importing Google Sheets data
+library(naniar)         ## new: counting missingness
+library(knitr)
+library(kableExtra)     ## for neatening tables in slides
+library(janitor)
+library(car)            ## for boxCox function
+library(infer)          ## bootstrapping
+library(patchwork)
+library(rstanarm)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+knitr::opts_chunk$set(comment = NA)
+
+source("c09/data/Love-431.R") # for the lovedist() function
+```
+
+## Importing Data on Favorite Movies
+
+```{r}
+#| echo: true
+#| message: true
+gs4_deauth() # indicates to Google Drive that you're reading a public file
+
+url <- "https://docs.google.com/spreadsheets/d/155iHDSUr8ZixX4nVcNq9HMkKbBizUhCsXHcteIdNddU"
+
+mov1 <- read_sheet(url)
+
+dim(mov1)
+names(mov1)
+```
+
+## Any missing values?
+
+```{r}
+#| echo: true
+
+n_miss(mov1)
+miss_var_summary(mov1)
+```
+
+## Looking at just our key variables
+
+Restricting the data to our six key variables (plus the identifiers `mov_id` and `movie`):
+
+```{r}
+#| echo: true
+
+mov2 <- mov1 |> select(mov_id, imdb_stars, imdb_ratings, length,
+                       mpa, year, imdb_categories, movie)
+glimpse(mov2)
+```
+
+## Assessing variables by type
+
+- Identification variables: `mov_id` and `movie`. 
+    - Are these *distinct* (do we have a different value of these in every row of our data?
+
+```{r}
+#| echo: true
+nrow(mov2); n_distinct(mov2$mov_id); n_distinct(mov2$movie)
+```
+
+OK.
+
+## Assessing variables by type
+
+- Quantities (check ranges)
+
+```{r}
+#| echo: true
+mov2 |> reframe(range(imdb_stars), range(imdb_ratings), 
+                range(length), range(year))
+```
+
+- `imdb_stars` = weighted average movie score (1 - 10)
+- `imdb_ratings` = # of users who've rated movie
+- `length` = length of movie, in minutes
+- `year` = year movie was released
+
+## Assessing variables by type
+
+- Categorical (assess levels, create factors)
+
+```{r}
+#| echo: true
+mov2 |> count(mpa)
+```
+
+## Dealing with `mpa`
+
+- Let's create a four-level factor, as follows:
+
+```{r}
+#| echo: true
+
+mov2 <- mov2 |>
+  mutate(mpa = fct_lump_n(mpa, n = 3, other_level = "Other"))
+
+mov2 |> count(mpa)
+```
+
+- Here, `fct_lump_n()` with `n = 3` collapses all `mpa` values that occur less often than the top 3 `mpa` values.
+
+## Final Key Variable: `imdb_categories`
+
+```{r}
+#| echo: true
+mov2 |> count(imdb_categories) |> arrange(desc(n))
+```
+
+- In 228 films, we see 215 different combinations of genres in `imdb_categories`.
+
+## Separate `imdb_categories`
+
+```{r}
+#| echo: true
+mov2 <- mov2 |>
+  separate_wider_delim(imdb_categories, delim = ",", cols_remove = FALSE, 
+                       too_few = "align_start",
+                       names = c("genre01", "genre02", "genre03", "genre04",
+                                 "genre05", "genre06", "genre07", "genre08",
+                                 "genre09", "genre10"))
+
+names(mov2)
+```
+
+## Missing `genre` values?
+
+```{r}
+#| echo: true
+miss_var_summary(mov2)
+```
+
+## Is this a Superhero movie?
+
+- Create a variable called `superhero` which is 1 if the movie’s `imdb_categories` list includes Superhero and 0 otherwise.
+
+```{r}
+#| echo: true
+mov2 <- mov2 |>
+  mutate(superhero = as.numeric(
+    str_detect(imdb_categories, fixed("Superhero"))))
+
+mov2 |> count(superhero)
+```
+
+## Our 13 "Superhero" Movies
+
+```{r}
+#| echo: true
+
+mov2 |> select(superhero, movie) |> filter(superhero == 1)
+```
+
+
+## Indicators of 12 Most Common Genres
+
+```{r}
+#| echo: true
+mov2 <- mov2 |> 
+  mutate(action = as.numeric(str_detect(imdb_categories, fixed("Action"))),
+         adventure = as.numeric(str_detect(imdb_categories, fixed("Adventure"))),
+         animation = as.numeric(str_detect(imdb_categories, fixed("Animation"))),
+         comedy = as.numeric(str_detect(imdb_categories, fixed("Comedy"))),
+         crime = as.numeric(str_detect(imdb_categories, fixed("Crime"))),
+         drama = as.numeric(str_detect(imdb_categories, fixed("Drama"))),
+         family = as.numeric(str_detect(imdb_categories, fixed("Family"))),
+         fantasy = as.numeric(str_detect(imdb_categories, fixed("Fantasy"))),
+         mystery = as.numeric(str_detect(imdb_categories, fixed("Mystery"))),
+         romance = as.numeric(str_detect(imdb_categories, fixed("Romance"))),
+         scifi = as.numeric(str_detect(imdb_categories, fixed("Sci-Fi"))),
+         thriller = as.numeric(str_detect(imdb_categories, fixed("Thriller")))
+  )
+```
+
+## Genre Counts (across our 228 movies)
+
+- For the 12 most common genres...
+
+```{r}
+#| echo: true
+mov2 |> 
+  select(action:thriller) |>
+  colSums()
+```
+
+### Build a tibble of genre counts
+
+```{r}
+#| echo: true
+genre_counts <- mov2 |> 
+  select(action:thriller) |>
+  colSums() |> 
+  t() |> as_tibble() |> pivot_longer(action:thriller) |>
+  rename(genre = name, movies = value) |> 
+  arrange(desc(movies))
+```
+
+## The `genre_counts` tibble
+
+```{r}
+#| echo: true
+genre_counts
+```
+
+## How many movies are
+
+- both Romance and Comedy?
+
+```{r}
+#| echo: true
+mov2 |> count(comedy, romance)
+```
+
+## 34 Romantic Comedies?
+
+:::: {.columns}
+
+::: {.column width="45%"}
+```{r}
+#| echo: true
+
+mov2 |> filter(comedy == 1, romance == 1) |>
+  select(movie) |> slice(1:18)
+```
+:::
+
+::: {.column width="45%"}
+```{r}
+#| echo: true
+
+mov2 |> filter(comedy == 1, romance == 1) |>
+  select(movie) |> slice(19:34)
+```
+
+:::
+
+::::
+
+## Any romance + comedy + superhero?
+
+```{r}
+#| echo: true
+mov2 |> filter(romance == 1, comedy == 1, superhero == 1) |>
+  select(mov_id, movie, imdb_categories)
+```
+
+```{r}
+#| echo: true
+mov2 |> filter(mov_id == "M-209") |> select(imdb_categories, mov_id)
+```
+
+::: {.callout-note}
+Thor: Love and Thunder does not have the "Romantic Comedy" genre. Only  nine of our movies do (About Time, Clueless, Coming to America, Crazy Rich Asians, Harold and Maude, Legally Blonde, Mamma Mia!, My Big Fat Greek Wedding and Notting Hill.)
+:::
+
+
+## Superhero, Sci-Fi & IMDB Stars (1/4)
+
+```{r}
+#| echo: true
+
+mov2 |> group_by(superhero) |> reframe(lovedist(imdb_stars)) |>
+  kbl(digits = 1) |> kable_material(font_size = 28)
+
+mov2 |> group_by(scifi) |> reframe(lovedist(imdb_stars)) |>
+  kbl(digits = 1) |> kable_material(font_size = 28)
+```
+
+- But what if a movie is in both genres?
+
+## Superhero, Sci-Fi & IMDB Stars (2/4)
+
+What to do about the movies with "Superhero" *and* "Sci-Fi"?
+
+```{r}
+#| echo: true
+mov2 |> filter(superhero == 1, scifi == 1) |>
+  select(mov_id, movie, superhero, scifi, imdb_stars)
+```
+
+
+## Superhero, Sci-Fi & IMDB Stars (3/4)
+
+```{r}
+#| echo: true
+
+mov2 |> group_by(superhero, scifi) |> 
+  reframe(lovedist(imdb_stars)) |>
+  kbl(digits = 1) |> kable_material(font_size = 28)
+```
+
+- What groups might we want to compare here?
+
+## Superhero, Sci-Fi & IMDB Stars (4/4) {.smaller}
+
+:::: {.columns}
+
+::: {.column width="45%"}
+```{r}
+#| echo: true
+
+mov2 |> filter(superhero == 1, scifi == 0) |>
+  select(movie)
+
+mov2 |> filter(superhero == 0, scifi == 1) |>
+  select(movie) |> slice(1:14)
+```
+:::
+
+::: {.column width="45%"}
+```{r}
+#| echo: true
+
+mov2 |> filter(superhero == 0, scifi == 1) |>
+  select(movie) |> slice(15:34)
+```
+
+- Are these groups comparable?
+
+:::
+
+::::
+
+## Movie Questions for Today
+
+1. Do movies released in 1942-2010 have more user ratings than movies released after 2010? (`imdb_ratings`, `year`)
+
+2. How do movie lengths vary by MPA ratings? (`length`, `mpa`)
+
+3. How strong is the association between how often a movie is rated on IMDB and its number of stars? (`imdb_ratings`, `imdb_stars`)
+
+## Question 1
+
+Do movies released in 1942-2010 have more user ratings than movies released after 2010? (`imdb_ratings`, `year`)
+
+### Numerical Summaries
+
+```{r}
+#| echo: true
+mov2 <- mov2 |>
+  mutate(release = fct_recode(factor(year > 2010),
+                            After2010 = "TRUE", Older = "FALSE"))
+
+mov2 |> group_by(release) |> reframe(lovedist(imdb_ratings)) |>
+  kbl(digits = 1) |> kable_styling(font_size = 20)
+```
+
+## Plotting the Two Samples
+
+Let's plot # of ratings by thousands, to avoid some scientific notation.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(mov2, aes(x = imdb_ratings/1000, y = release)) +
+  geom_violin(aes(fill = release)) +
+  geom_boxplot(width = 0.25) +
+  stat_summary(fun = mean, geom = "point", col = "red", 
+               shape = 16, size = 2) +
+  scale_fill_viridis_d(option = "C", alpha = 0.3) +
+  guides(fill = "none") +
+  labs(y = "Release Date", x = "Thousands of IMDB Ratings")
+```
+
+## Data not close to Normal
+
+Each sample shows right skew in the # of IMDB user ratings:
+
+Group | Sample Mean | Sample Median
+-------: | ------: | -------:
+Older     | 592,217.1 | 367,000
+After2010 | 482,915.6 | 369,500
+Difference | 109,301.5 | -2,500
+
+- Could we use a bootstrap to compare the means without worrying much about the skew (instead compare medians?)
+- Could we use a non-linear transformation?
+- Let's use an 89% uncertainty interval. (Why not?)
+
+## Bootstrap difference in means
+
+```{r}
+#| echo: true
+
+# point estimate 
+mov2 |> specify(imdb_ratings ~ release) |>
+  calculate(stat = "diff in means", order = c("Older", "After2010"))
+
+# 89% confidence interval
+set.seed(202409241)
+mov2 |> specify(imdb_ratings ~ release) |>
+  generate(reps = 2500, type = "bootstrap") |>
+  calculate(stat = "diff in means", order = c("Older", "After2010")) |>
+  get_ci(level = 0.89, type = "percentile")
+```
+
+## Bootstrap difference in medians
+
+```{r}
+#| echo: true
+
+# point estimate 
+mov2 |> specify(imdb_ratings ~ release) |>
+  calculate(stat = "diff in medians", order = c("Older", "After2010"))
+
+# 89% confidence interval
+set.seed(202409242)
+mov2 |> specify(imdb_ratings ~ release) |>
+  generate(reps = 2500, type = "bootstrap") |>
+  calculate(stat = "diff in medians", order = c("Older", "After2010")) |>
+  get_ci(level = 0.89, type = "percentile")
+```
+
+
+
+## Right Skew: Try a logarithm?
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggplot(mov2, aes(x = log(imdb_ratings), y = release)) +
+  geom_violin(aes(fill = release)) +
+  geom_boxplot(width = 0.25) +
+  stat_summary(fun = mean, geom = "point", col = "red", 
+               shape = 16, size = 3) +
+  scale_fill_viridis_d(option = "C", alpha = 0.3) +
+  guides(fill = "none") +
+  labs(y = "Release Date", x = "log(# of IMDB Ratings)")
+```
+
+## Box-Cox suggestion?
+
+```{r}
+#| echo: true
+fit0 <- lm(imdb_ratings ~ release, data = mov2)
+boxCox(fit0)
+```
+
+
+## Right Skew: Try a square root?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(mov2, aes(x = sqrt(imdb_ratings), y = release)) +
+  geom_violin(aes(fill = release)) +
+  geom_boxplot(width = 0.25) +
+  stat_summary(fun = mean, geom = "point", col = "red", 
+               shape = 16, size = 3) +
+  scale_fill_viridis_d(option = "C", alpha = 0.3) +
+  guides(fill = "none") +
+  labs(y = "Release Date", x = "sqrt(# of IMDB Ratings)")
+```
+
+## OLS model 
+
+```{r}
+#| echo: true
+
+fit1 <- lm(sqrt(imdb_ratings) ~ release, data = mov2)
+
+model_parameters(fit1, ci = 0.89)
+```
+
+```{r}
+#| echo: true
+
+estimate_contrasts(fit1, contrast = "release", ci = 0.89)
+```
+
+- Of course, these results are on the square root scale.
+
+## Bayesian model 
+
+```{r}
+#| echo: true
+
+set.seed(202409213)
+fit2 <- stan_glm(sqrt(imdb_ratings) ~ release, data = mov2, refresh = 0)
+model_parameters(fit2, ci = 0.89)
+```
+
+```{r}
+#| echo: true
+
+estimate_contrasts(fit2, contrast = "release", ci = 0.89)
+```
+
+## Making Predictions (1/2)
+
+- Use our OLS model for `sqrt(imdb_ratings)` to make predictions on the square root scale.
+
+```{r}
+#| echo: true
+
+estimate_means(fit1, ci = 0.89, by = "release", transform = "none") |>
+  kbl(digits = 4)
+```
+
+Note that $675.7814^2 \approx 456681$ and $623.0566^2 \approx 388200$
+
+## Making Predictions (2/2)
+
+- Use our model for `sqrt(imdb_ratings)` to make predictions on the original scale of `imdb_ratings`.
+
+```{r}
+#| echo: true
+
+estimate_means(fit1, ci = 0.89, by = "release", 
+               transform = "response") |>
+  kbl(digits = 0)
+```
+
+## Summary for Question 1
+
+Do movies released in 1942-2010 have more user ratings than movies released after 2010? 
+
+Group | Sample Mean | Sample Median
+-------: | ------: | -------:
+Older     | 592,217.1 | 367,000
+After2010 | 482,915.6 | 369,500
+Difference | 109,301.5 | -2,500
+
+- Bootstrap means: diff = 109302, 89% CI (-7165, 219881)
+- Bootstrap medians: diff = -2500, 89% CI (-124943, 122500)
+
+## Question 1 Models
+
+Do movies released in 1942-2010 have more user ratings than movies released after 2010? 
+
+- **OLS**: Square root of user ratings for a movie released in 1942-2010 is, on average, 52.72 (89% CI: -26, 132) higher than for a movie released after 2010. 
+
+- **Bayes**: Square root of user ratings for a movie released in 1942-2010 is, on average, 54.06 (89% CI: -25, 131) higher than for a movie released after 2010.
+
+## Question 2
+
+How do movie lengths vary by MPA ratings? (`length`, `mpa`)
+
+### We'll focus on PG, PG-13 and R
+
+```{r}
+#| echo: true
+mov3 <- mov2 |>
+  filter(mpa != "Other") |>
+  mutate(mpa = fct_reorder(mpa, length, .desc = TRUE))
+
+mov3 |> group_by(mpa) |> reframe(lovedist(length)) |>
+  kbl(digits = 1) |> kable_styling(font_size = 28)
+```
+
+## Three Independent Samples
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+
+ggplot(mov3, aes(x = mpa, y = length)) +
+  geom_violin() + 
+  geom_boxplot(aes(fill = mpa), width = 0.3) +
+  stat_summary(fun = mean, geom = "point", size = 4, 
+               shape = 23, col = "snow", fill = "royalblue") +
+  scale_fill_viridis_d(option = "D", alpha = 0.5) +
+  guides(fill = "none")
+```
+
+## OLS model
+
+```{r}
+#| echo: true
+
+fit3 <- lm(length ~ mpa, data = mov3)
+
+anova(fit3)
+
+estimate_means(fit3, ci = 0.89)
+```
+
+## Pairwise Comparisons
+
+```{r}
+#| echo: true
+
+estimate_contrasts(fit3, contrast = "mpa", ci = 0.89, p_adjust = "Holm")
+```
+
+## Build a tibble of contrasts
+
+```{r}
+#| echo: true
+
+con_holm <- estimate_contrasts(fit3, ci = 0.89, p_adjust = "holm")
+
+con_holm_tib <- tibble(con_holm) |>  
+  mutate(contr = str_c(Level1, " - ", Level2))
+
+con_holm_tib
+```
+
+## Plot Holm comparisons
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(con_holm_tib, aes(x = contr, y = Difference)) +
+  geom_point(size = 3, col = "purple") +
+  geom_errorbar(aes(ymin = CI_low, ymax = CI_high)) +
+  geom_hline(yintercept = 0, col = "red", lty = "dashed") +
+  labs(title = "Holm 89% Intervals for Movie Length",
+       x = "Contrast", 
+       y = "Difference in Length")
+```
+
+## Summary for Question 2
+
+How do movie lengths vary by MPA ratings?
+
+MPA | $n$ | Sample Mean | Sample Median
+-----: | --: | -------: | ------:
+PG-13 | 74 | 128.4 | 123
+R | 67 | 128.0 | 122
+PG | 62 | 111.7 | 106.5
+
+- In the sample, PG movies are shorter by 16-17 minutes.
+- Pairwise 89% contrasts yield larger differences between PG and the other `mpa` groups, than between PG-13 and R. 
+
+# Simple Linear Regression
+
+## Question 3
+
+How strong is the association between how often a movie is rated on IMDB and its number of stars? (`imdb_ratings`, `imdb_stars`)
+
+```{r}
+#| echo: true
+mov2 |> reframe(lovedist(imdb_ratings)) |> 
+  kbl(digits = 0) |> kable_styling(font_size = 28)
+
+mov2 |> reframe(lovedist(imdb_stars)) |> 
+  kbl(digits = 2) |> kable_styling(font_size = 28)
+```
+
+## Scatterplot of 228 movies
+
+We'll look at stars (on the y axis) vs. ratings (in 100,000s, on x).
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(mov2, aes(x = imdb_ratings/100000, y = imdb_stars)) +
+  geom_point() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "Hundreds of Thousands of IMDB ratings",
+       y = "Weighted average star rating")
+```
+
+## Pearson Correlation 
+
+```{r}
+#| echo: true
+cor(mov2$imdb_stars, mov2$imdb_ratings)
+
+cor(mov2$imdb_stars, (mov2$imdb_ratings/100000))
+```
+
+- We can add or multiply by a constant without changing the Pearson correlation coefficient.
+
+```{r}
+#| echo: true
+cor_test(mov2, "imdb_stars", "imdb_ratings")
+```
+
+## OLS model with `imdb_ratings`
+
+```{r}
+#| echo: true
+
+fit5 <- lm(imdb_stars ~ imdb_ratings, data = mov2)
+
+model_parameters(fit5, ci = 0.89)
+```
+
+Very hard to conceptualize $9.6 \times 10^{-7}$ in any practical context, plus the 89% CI for the slope of `imdb_ratings` is 0.
+
+- What if we rescaled the `imdb_ratings` maintaining the linear relationship?
+    - We can add or multiply by any constant we like.
+    - Divide # of ratings by 100,000?
+
+## OLS with rescaled `imdb_ratings`
+
+```{r}
+#| echo: true
+#| message: true
+
+mov4 <- mov2 |>
+  mutate(users_100k = imdb_ratings/100000)
+
+fit6 <- lm(imdb_stars ~ users_100k, data = mov4)
+
+model_parameters(fit6, ci = 0.89)
+```
+
+- When comparing any two movies whose # of IMDB user ratings are 100,000 apart, we see a star rating that is 0.10 stars (89% CI 0.08, 0.11) higher, on average, for the movie with more user ratings, according to this model. 
+
+## Performance of the OLS model
+
+```{r}
+#| echo: true
+model_performance(fit6)
+```
+
+- Key summaries for an OLS model with one predictor, like `fit6`, are $R^2$ and Sigma (which is similar to RMSE.)
+- $R^2$ tells us model `fit6` accounts for 37.6% of the variation in `imdb_stars` that we observe in our `mov2` data.
+
+## Performance of the OLS model
+
+```{r}
+#| echo: true
+model_performance(fit6)
+```
+
+- Our model `fit6` assumes that our errors (residuals) come from a Normal distribution with mean 0 and standard deviation Sigma ($\sigma$) = 0.69. 
+- Thus, about 68% of our predictions should be within $\pm$ 0.69 stars of the correct outcome, and 95% of our predictions should be within $\pm 2 \times 0.69$, or 1.38 stars.
+
+# Planned Break between Classes 09 and 10.
+
+## Performance Measures (1/5)
+
+- `AIC`: Akaike’s Information Criterion
+- `AICc`: Second-order (or small sample) AIC with a correction for small sample sizes
+- `BIC`: Bayesian Information Criterion
+
+AIC, AICc and BIC are used when comparing one or more models for the same outcome. When comparing models fit using maximum likelihood (like OLS linear models), the smaller the AIC or BIC, the better the fit.
+
+## Performance Measures (2/5)
+
+`R2`: r-squared value = 0.376
+
+- The R-squared ($R^2$) measure for an OLS fit describes how much of the variation in our outcome can be explained using our model (and its predictors.) $R^2$ falls between 0 and 1, and the closer it is to 1, the better the model fits our data. 
+- In a simple (one-predictor) OLS model like this, the value is also the square of the Pearson correlation coefficient, $r$. 
+- We called this $R^2$ "eta-squared" ($\eta^2$) in ANOVA.
+
+## Performance Measures (3/5)
+
+`R2 (adj.)`: adjusted r-squared value = 0.373
+
+- Adjusted R-squared is an index (so it’s not a proportion of anything) for comparing different models (different predictor sets) for the same outcome.
+- The idea is to reduce the temptation to overfit the data, by penalizing the $R^2$ value a little for each predictor. 
+- Adjusted $R^2$ is usually between 0 and 1, but can be negative.
+- Its formula accounts for the number of observations and the number of predictors in the model. 
+- The adjusted $R^2$ measure can never be larger than $R^2$.
+
+## Performance Measures (4/5)
+
+`RMSE` = 0.687
+
+- The RMSE is the square root of the variance of the residuals and summarizes the difference between the observed data and the model’s predicted values.
+- It can be interpreted as the standard deviation of the unexplained variance, and has the same units as the outcome. 
+- When comparing models using the same data for the same outcome (but, for instance, with different predictor sets), lower RMSE values indicate better model fit. 
+
+## Performance Measures (5/5)
+
+`Sigma` = 0.690
+
+- Linear models assume that their residuals are drawn from a Normal distribution with mean 0 and standard deviation equal to sigma ($\sigma$). 
+- This indicates that the predicted outcome will be within $\pm 1 \sigma$ units of the observed outcome for approximately 68% of the data points, for example. 
+
+## Checking OLS Model Fit
+
+Main assumptions of any simple linear regression are:
+
+1. **linearity**: we assume that the outcome is linearly related to our predictor 
+2. **constant variance** (homoscedasticity): we assume that the variation of our outcome is about the same regardless of the value of our predictor
+3. **normal distribution**: we assume that the errors around the regression model at any specified values of the x-variables follow an approximately Normal distribution.
+
+To check these assumptions, consider the following plots.
+
+## Fitting the diagnostic plots
+
+```{r}
+#| echo: true
+#| message: true
+
+fit6_diagnostic_plots <- 
+  plot(check_model(fit6, panel = FALSE))
+```
+
+- I don't worry about confidence bands in these plots.
+
+## Checking Linearity
+
+```{r}
+#| echo: true
+
+fit6_diagnostic_plots[[2]]
+```
+
+## Checking Equal Variances
+
+```{r}
+#| echo: true
+
+fit6_diagnostic_plots[[3]]
+```
+
+## Checking for Influential Points
+
+```{r}
+#| echo: true
+
+fit6_diagnostic_plots[[4]]
+```
+
+## Which points are listed in the plot?
+
+None are anywhere near the contours, as it turns out.
+
+```{r}
+#| echo: true
+mov2 |> slice(c(41, 32, 69, 130, 183)) |> select(mov_id, movie)
+```
+
+
+## Checking Normality
+
+```{r}
+#| echo: true
+
+fit6_diagnostic_plots[[5]]
+```
+
+## Alternative: Normal Q-Q
+
+```{r}
+#| echo: true
+
+plot(fit6, which = 2)
+```
+
+## Which points are low outliers?
+
+```{r}
+#| echo: true
+mov2 |> slice(c(69, 183, 130)) |> select(mov_id, movie, imdb_stars)
+```
+
+```{r}
+#| echo: true
+mov2 |> select(mov_id, movie, imdb_stars) |> 
+  arrange(imdb_stars) |> head(3)
+```
+
+
+## Posterior Predictive Checks
+
+```{r}
+#| echo: true
+
+fit6_diagnostic_plots[[1]]
+```
+
+
+## Box-Cox suggestion?
+
+```{r}
+#| echo: true
+boxCox(fit6)
+```
+
+## `imdb_stars` squared?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(mov2, aes(x = imdb_ratings/100000, y = imdb_stars)) +
+  geom_point() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "Hundreds of Thousands of IMDB ratings",
+       y = "Weighted average star rating",
+       title = "No transformation")
+
+p2 <- ggplot(mov2, aes(x = imdb_ratings/100000, y = imdb_stars^2)) +
+  geom_point() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "Hundreds of Thousands of IMDB ratings",
+       y = "Square of Weighted average star rating",
+       title = "Outcome squared")
+
+p1 + p2
+```
+
+
+## Could we transform either variable?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p3 <- ggplot(mov2, aes(x = imdb_ratings/100000)) +
+  geom_histogram(binwidth = 1, col = "white", fill = "dodgerblue") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(mov2$imdb_ratings/100000, 
+                         na.rm = TRUE),
+          sd = sd(mov2$imdb_ratings/100000, 
+                  na.rm = TRUE)) *
+      length(mov2$imdb_ratings/100000) * 1,  
+    geom = "area", alpha = 0.5,
+    fill = "lightblue", col = "blue") +
+  labs(x = "Hundreds of Thousands of IMDB ratings",  y = "",
+       title = "IMDB_Ratings / 100000")
+
+p4 <- ggplot(mov2, aes(x = imdb_stars)) +
+  geom_histogram(binwidth = 0.2, col = "black", fill = "gold") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(mov2$imdb_stars,
+                         na.rm = TRUE),
+          sd = sd(mov2$imdb_stars, 
+                  na.rm = TRUE)) *
+      length(mov2$imdb_stars) * 0.2,  
+    geom = "area", alpha = 0.5,
+    fill = "grey80", col = "black") +
+  labs(x = "Weighted average star rating", y = "",
+       title = "IMDB Stars")
+
+p3 + p4
+```
+
+## Transforming `IMDB_ratings`?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p3a <- ggplot(mov2, aes(x = log(imdb_ratings))) +
+  geom_histogram(binwidth = 0.5, col = "white", fill = "dodgerblue") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(log(mov2$imdb_ratings), 
+                         na.rm = TRUE),
+          sd = sd(log(mov2$imdb_ratings), 
+                  na.rm = TRUE)) *
+      length(log(mov2$imdb_ratings)) * 0.5,  
+    geom = "area", alpha = 0.5,
+    fill = "lightblue", col = "blue") +
+  labs(x = "Log of IMDB ratings",  y = "", 
+       title = "Log of IMDB_Ratings")
+
+p3b <- ggplot(mov2, aes(x = sqrt(imdb_ratings))) +
+  geom_histogram(binwidth = 100, col = "white", fill = "dodgerblue") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(sqrt(mov2$imdb_ratings), 
+                         na.rm = TRUE),
+          sd = sd(sqrt(mov2$imdb_ratings), 
+                  na.rm = TRUE)) *
+      length(sqrt(mov2$imdb_ratings)) * 100,  
+    geom = "area", alpha = 0.5,
+    fill = "lightblue", col = "blue") +
+  labs(x = "Square Root of IMDB ratings",  y = "", 
+       title = "Square Root of IMDB_Ratings")
+
+p3a + p3b
+```
+
+## New Scatterplot?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p5 <- ggplot(mov2, aes(x = imdb_ratings, y = imdb_stars)) +
+  geom_point() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "IMDB ratings",
+       y = "Weighted average star rating",
+       title = "No transformation")
+
+p6 <- ggplot(mov2, aes(x = sqrt(imdb_ratings), y = imdb_stars^2)) +
+  geom_point() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "Square Root of IMDB Ratings",
+       y = "Weighted average star rating",
+       title = "Square Root of Predictor")
+
+p5 + p6
+```
+
+
+## Model with $\sqrt{\mbox{IMDB_ratings}}$
+
+```{r}
+#| echo: true
+
+fit7 <- lm(imdb_stars ~ sqrt(imdb_ratings), data = mov2)
+
+model_parameters(fit7, ci = 0.89)
+```
+
+- Same problem as before. 
+- Tiny slope coefficients are needlessly hard to interpret.
+
+## Rescaled $\sqrt{\mbox{IMDB_ratings}}$ Model
+
+```{r}
+#| echo: true
+#| message: true
+
+mov4 <- mov4 |>
+  mutate(sqrtratK = sqrt(imdb_ratings)/1000)
+
+fit8 <- lm(imdb_stars ~ sqrtratK, data = mov4)
+model_parameters(fit8, ci = 0.89)
+```
+
+- Suppose we have two movies whose square root of # of IMDB user ratings is 1000 apart. On average, the star rating is 1.60 stars (89% CI 1.40, 1.81) higher for the movie with more IMDB user ratings, according to model `fit8`.
+
+## Scatterplot for model `fit8`
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(mov4, aes(x = sqrtratK, y = imdb_stars)) +
+  geom_point() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "(square root of IMDB ratings)/1000",
+       y = "Weighted average star rating",
+       title = "Transformation for `fit8` model")
+```
+
+
+## Model `fit8` vs. `fit6` performance
+
+```{r}
+#| echo: true
+
+fit6 <- lm(imdb_stars ~ users_100k, data = mov4)
+fit8 <- lm(imdb_stars ~ sqrtratK, data = mov4)
+model_performance(fit6)
+model_performance(fit8)
+```
+
+>- Which model looks better here?
+>- `fit8`, with lower AIC, BIC, RMSE, Sigma, and higher $R^2$.
+
+## Model Checking for `fit8`
+
+```{r}
+#| echo: true
+#| message: true
+
+fit8_diagnostic_plots <- 
+  plot(check_model(fit8, panel = FALSE))
+```
+
+## Checking Linearity
+
+```{r}
+#| echo: true
+
+fit8_diagnostic_plots[[2]]
+```
+
+## Checking Equal Variances
+
+```{r}
+#| echo: true
+
+fit8_diagnostic_plots[[3]]
+```
+
+## Checking for Influential Points
+
+```{r}
+#| echo: true
+
+fit8_diagnostic_plots[[4]]
+```
+
+## Checking Normality
+
+```{r}
+#| echo: true
+
+fit8_diagnostic_plots[[5]]
+```
+
+## Posterior Predictive Checks
+
+```{r}
+#| echo: true
+
+fit8_diagnostic_plots[[1]]
+```
+
+## Restricting the Sample???
+
+What if instead of doing a transformation, we only looked at the subset of movies with over 1,000,000 IMDB user ratings?
+
+```{r}
+#| echo: true
+mov5 <- mov4 |> filter(imdb_ratings > 1000000)
+dim(mov5)
+```
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(mov5, aes(x = imdb_ratings/100000, y = imdb_stars)) +
+  geom_point() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "IMDB ratings / 100000",
+       y = "Weighted average star rating",
+       title = glue(nrow(mov5), " Movies with over 1M IMDB Ratings"))
+```
+
+- Is this a good idea?
+
+## Labeling the Movies in the Scatterplot
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(mov5, aes(x = imdb_ratings/100000, y = imdb_stars, 
+                 label = movie)) +
+  geom_point() +
+  geom_text_repel() +
+  geom_smooth(method = "loess", 
+              formula = y ~ x, se = FALSE, col = "blue") +
+  geom_smooth(method = "lm", 
+              formula = y ~ x, se = TRUE, col = "red") +
+  labs(x = "IMDB ratings / 100000",
+       y = "Weighted average star rating",
+       title = glue(nrow(mov5), " Movies with over 1M IMDB Ratings"))
+```
+
+## Our subset of `r nrow(mov5)` movies
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p5a <- ggplot(mov5, aes(x = imdb_ratings/100000)) +
+  geom_histogram(binwidth = 1, col = "white", fill = "dodgerblue") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(mov5$imdb_ratings/100000, 
+                         na.rm = TRUE),
+          sd = sd(mov5$imdb_ratings/100000, 
+                  na.rm = TRUE)) *
+      length(mov5$imdb_ratings/100000) * 1,  
+    geom = "area", alpha = 0.5,
+    fill = "lightblue", col = "blue") +
+  labs(x = "Hundreds of Thousands of IMDB ratings",  y = "",
+       title = "IMDB_Ratings / 100000")
+
+p5b <- ggplot(mov5, aes(x = imdb_stars)) +
+  geom_histogram(binwidth = 0.1, col = "black", fill = "gold") +
+  stat_function(fun = function(x)
+    dnorm(x, mean = mean(mov5$imdb_stars,
+                         na.rm = TRUE),
+          sd = sd(mov5$imdb_stars, 
+                  na.rm = TRUE)) *
+      length(mov5$imdb_stars) * 0.1,  
+    geom = "area", alpha = 0.5,
+    fill = "grey80", col = "black") +
+  labs(x = "Weighted average star rating", y = "",
+       title = "IMDB Stars")
+
+p5a + p5b
+```
+
+## Model `fit9` for `r nrow(mov5)` movies
+
+```{r}
+#| echo: true
+#| message: true
+fit9 <- lm(imdb_stars ~ users_100k, data = mov5)
+
+model_parameters(fit9, ci = 0.89)
+```
+
+- If two movies each have over 1 million IMDB ratings, and the movies have a 100,000 user difference in IMDB ratings, then the movie with more ratings will, on average, have a star rating that is 0.05 stars higher (89% CI: 0.04, 0.07) than the movie with fewer ratings, according to model `fit9`.
+
+## `fit9` Performance and Checking
+
+```{r}
+#| echo: true
+
+model_performance(fit9)
+```
+
+- These results with `r nrow(mov5)` movies cannot be compared to our prior results when we included all 228 movies.
+
+```{r}
+#| echo: true
+fit9_diagnostic_plots <- 
+  plot(check_model(fit9, panel = FALSE))
+```
+
+## Checking Linearity
+
+```{r}
+#| echo: true
+
+fit9_diagnostic_plots[[2]]
+```
+
+## Checking Equal Variances
+
+```{r}
+#| echo: true
+
+fit9_diagnostic_plots[[3]]
+```
+
+## Checking for Influential Points
+
+```{r}
+#| echo: true
+
+fit9_diagnostic_plots[[4]]
+```
+
+## Checking Normality
+
+```{r}
+#| echo: true
+
+fit9_diagnostic_plots[[5]]
+```
+
+## Posterior Predictive Checks
+
+```{r}
+#| echo: true
+
+fit9_diagnostic_plots[[1]]
+```
+
+## Additional Checks
+
+If you're desperate, there are some tests / checks...
+
+```{r}
+#| echo: true
+
+check_heteroscedasticity(fit9)
+
+check_outliers(fit9)
+
+check_normality(fit9)
+```
+
+::: {.callout-note}
+- Models `fit6` and `fit8` passed only `check_outliers()`.
+- Models for movies with at least 200K, 300K and 500K IMDB ratings also passed only the outlier check.
+:::
+
+## Bayesian Model `fit10` for `r nrow(mov5)` movies
+
+Remember: Set seed; switch to `stan_glm()`, use refresh = 0.
+
+```{r}
+#| echo: true
+
+set.seed(20240926)
+fit10 <- stan_glm(imdb_stars ~ users_100k, data = mov5, refresh = 0)
+model_parameters(fit10, ci = 0.89)
+```
+
+- If two movies with over 1 million IMDB ratings have a 100,000 user difference in IMDB ratings, then the movie with more ratings will, on average, have a star rating that is 0.05 stars higher (89% CI: 0.04, 0.06) than the movie with fewer ratings, according to `fit10`.
+
+## `fit10` Performance and Checking
+
+```{r}
+#| echo: true
+
+model_performance(fit10)
+```
+
+- Note that we have some new summaries now. The $R^2$, RMSE and Sigma values can be compared to `fit9` which used the same data. On the whole, `fit10` looks *slightly* worse than `fit9` on these metrics.
+- Let's get the diagnostic plots for `fit10`.
+
+```{r}
+#| echo: true
+fit10_diagnostic_plots <- 
+  plot(check_model(fit10, panel = FALSE))
+```
+
+## Checking Linearity
+
+```{r}
+#| echo: true
+
+fit10_diagnostic_plots[[2]]
+```
+
+## Checking Equal Variances
+
+```{r}
+#| echo: true
+
+fit10_diagnostic_plots[[3]]
+```
+
+## Checking for Influential Points
+
+```{r}
+#| echo: true
+
+fit10_diagnostic_plots[[4]]
+```
+
+## Checking Normality
+
+```{r}
+#| echo: true
+
+fit10_diagnostic_plots[[5]]
+```
+
+## Posterior Predictive Checks
+
+```{r}
+#| echo: true
+
+fit10_diagnostic_plots[[1]]
+```
+
+## Not much to choose from here...
+
+`fit10` and `fit9` are pretty similar in terms of estimated parameters, performance metrics, and diagnostic checks.
+
+```{r}
+#| echo: true
+
+check_heteroscedasticity(fit10)
+
+check_outliers(fit10)
+```
+
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```
+

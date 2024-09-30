@@ -1,0 +1,557 @@
+---
+title: "431 Class 11"
+author: Thomas E. Love, Ph.D.
+date: "2024-10-01"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    logo: 431_2024_logo.png
+    footer: "431 Class 11 | 2024-10-01 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+- Confidence Intervals for a Population Proportion
+    - Many Possibilities
+    - Two We Most Often Use in Practice
+- Comparing Two Proportions using Independent Samples
+    - Standard Epidemiological Format
+    - Working with 2x2 Tables
+
+Today's material is discussed in Chapter 13 of our Course Book.
+
+## Today's Packages
+
+```{r}
+#| echo: true
+#| message: false
+
+library(Epi) # for twoby2() function
+library(readxl) # to import an Excel file
+library(janitor)
+library(easystats)
+library(tidyverse)
+
+source("c11/data/Love-431.R") # for twobytwo() function
+
+theme_set(theme_bw())
+```
+
+# Confidence Intervals for a Population Proportion
+
+## Moving on from Means to Proportions
+
+We've focused on creating statistical inferences about a population mean when we have a quantitative outcome. Now, we'll tackle a **categorical** outcome.
+
+We'll estimate a confidence interval around an unknown population proportion, or rate, symbolized with $\pi$, on the basis of a random sample of *n* observations from the population of interest.
+
+The sample proportion is called $\hat{p}$, which is sometimes, unfortunately, symbolized as $p$.
+
+-   $\hat{p}$ is the sample proportion - not a *p* value.
+
+## An Example from *JAMA Pediatrics*
+
+![](c11/images/NICU1.png)
+
+## Outcome: Change of Management (COM) {.smaller}
+
+The study involved infants ages 0-120 days admitted to an intensive care unit with a suspected genetic disease.
+
+-   For our first example, we focus on a sample of 326 subjects who received whole-genome sequencing testing at some point in the first 60 days after they were enrolled in the study.
+-   The outcome of interest is whether or not the subject received a change of management (COM) 60 days after their enrollment.
+
+What can we conclude about the true proportion in the population of infants who meet our study criteria who would have a COM?
+
+## Loading the Data
+
+```{r}
+#| echo: true
+nicu <- read_excel("c11/data/nicu_seq.xls") |>
+  janitor::clean_names()
+
+nicu
+```
+
+## Our `outcome` data
+
+```{r}
+#| echo: true
+
+nicu |> tabyl(outcome) |> adorn_totals() |> adorn_pct_formatting()
+```
+
+Our first inferential goal will be to produce a **confidence interval for the true (population) proportion** receiving a COM, across all infants who meet study criteria, based on this sample of 326 infants.
+
+## A Confidence Interval for a Proportion
+
+A 100(1-$\alpha$)% confidence interval for the population proportion $\pi$ can be created by using:
+
+-   the standard normal distribution,
+-   the sample proportion, $\hat{p}$, and
+-   the standard error of a sample proportion, which is defined as the square root of $\hat{p}$ multiplied by $(1 - \hat{p})$ divided by the sample size, $n$.
+
+## A Confidence Interval for a Proportion
+
+Specifically, that confidence interval estimate is $\hat{p} \pm Z_{\alpha/2} \sqrt{\frac{\hat{p}(1-\hat{p})}{n}}$
+
+where $Z_{\alpha/2}$ = the value from a standard Normal distribution cutting off the top $\alpha/2$ of the distribution, obtained in R by substituting the desired $\alpha/2$ value into: `qnorm(alpha/2, lower.tail=FALSE)`.
+
+-   *Note*: This interval is reasonably accurate so long as $n \hat{p}$ and $n(1- \hat{p})$ are each at least 5.
+
+## Estimating $\pi$ in the NICU data
+
+-   We'll build a 95% confidence interval for the true population proportion, so $\alpha$ = 0.05
+-   We have n = 326 subjects
+-   Sample proportion is $\hat{p}$ = .156, since 51/326 = 0.156.
+
+The standard error of that sample proportion will be
+
+$$
+\textrm{SE}(\hat{p}) = \sqrt{\frac{\hat{p}(1 - \hat{p})}{n}} = \sqrt{\frac{0.156(1-0.156)}{326}} = 0.020
+$$
+
+## Confidence Interval for $\pi$ = Pr(COM)
+
+Our 95% confidence interval for the true population proportion, $\pi$, of infants who have a COM within 60 days is:
+
+$$
+\hat{p} \pm Z_{.025} \sqrt{\frac{\hat{p}(1 - \hat{p})}{n}} = 0.156 \pm 1.96 (0.020) = 0.156 \pm 0.039
+$$
+
+or (0.117, 0.195).
+
+To verify that $Z_{0.025} = 1.96$...
+
+```{r}
+#| echo: true
+qnorm(0.025, lower.tail=FALSE)
+```
+
+## Likely Accuracy of this CI?
+
+Since $n \hat{p} = (326)(0.156) = 51$ and $n (1 - \hat{p}) = (326)(1-0.156) = 275$ are substantially greater than 5, the CI should be reasonably accurate.
+
+What can we conclude from this analysis?
+
+-   Point estimate of the proportion with COM is 0.156
+-   95% CI for population proportion is (0.117, 0.195)
+
+## What is the "margin of error" in this confidence interval?
+
+95% CI for population proportion is (0.117, 0.195)
+
+-   The entire confidence interval has width 0.078 (or 7.8 percentage points.)
+-   The margin of error (or half-width) is 0.039, or 3.9 percentage points.
+
+Happily, that's our last "by hand" calculation.
+
+## Using `prop.test()` to estimate a CI
+
+Here's one way to use R to estimate a slightly different interval.
+
+```{r}
+#| echo: true
+prop.test(x = 51, n = 326, conf.level = 0.95,
+          correct = TRUE)
+```
+
+## Using `binom.test()` from base R
+
+Here's another way to use R to estimate a slightly different interval.
+
+```{r}
+#| echo: true
+binom.test(x = 51, n = 326, conf.level = 0.95)
+```
+
+## Many Different Confidence Intervals
+
+One could use the `binom.test()` function from within the `mosaic` package to generate at least 5 other types of CI for a proportion.
+
+For a 95% CI, we would use:
+
+```{r}
+#| echo: true
+#| eval: false
+mosaic::binom.test(x = 51, n = 326, p = 0.5, conf.level = 0.95, # defaults
+                   ci.method = "XXX")
+```
+
+where the appropriate `ci.method` is obtained from the next slide's table.
+
+## Choosing a `ci.method`
+
+| Approach        | `ci.method` to be used                |
+|-----------------|---------------------------------------|
+| Wald            | `"Wald"`                              |
+| Clopper-Pearson | `"Clopper-Pearson"` or `"binom.test"` |
+| Score           | `"Score"` or `"prop.test"`            |
+| Agresti-Coull   | `"agresti-coull"`                     |
+| Plus4           | `"plus4"`                             |
+
+## Approaches 1-2 in `binom.test()`
+
+Each of these five approaches involves an approximation.
+
+1.  **Wald** is the "basic biostatistics" method we just calculated, where we estimate the standard error using the sample proportion and then use the Normal distribution to set the endpoints. The Wald interval is always symmetric, and can dip below 0 or above 1.
+2.  **Clopper-Pearson** is used by `stats::binom.test()` in R as well. It guarantees coverage at least as large as the nominal coverage rate, but may produce wider intervals than the other methods.
+
+## Approaches 3-5 in `binom.test()`
+
+3.  **Score** is used by `stats::prop.test()` and creates CIs by inverting p-values from score tests. It can be applied with a continuity correction (use ci.method = `"prop.test"`) or without.
+4.  **Agresti-Coull** is the Wald method after adding Z successes and Z failures to the data, where Z is the appropriate quantile for a standard Normal distribution (1.96 for a 95% CI)
+5.  **Plus4** is the Wald method after adding 2 successes and 2 failures (so 4 observations) to the data.
+
+## Plotting Some 95% CI Estimates
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+res <- tibble(
+  approach = c("prop.test", "Wald", "Clopper-Pearson", 
+               "Score", "Agresti-Coull", "Plus4", "SAIFS"),
+  estimate = c(.15644, .15644, .15644, .15644, .15644, .15644, .15644),
+  conf.low = c(.11967, .11701, .11875, .12104, .12084, .12099, .11643	),
+  conf.high = c(.20152, .19588, .20051, .19985, .20005, .20022, .19887)
+)
+
+ggplot(res, aes(x = approach, y = estimate)) +
+  geom_point() + 
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) + 
+  labs(title = "Some 95% CIs for x = 51, n = 326") +
+  ylim(0.1, 0.25) +
+  coord_flip()
+```
+
+## Estimating Rates More Accurately
+
+Suppose you have some data involving n independent tries, with x successes. The most natural estimate of the "success rate" in the data is x / n. But, strangely enough, it turns out this isn't an entirely satisfying estimator.
+
+Alan Agresti provides substantial motivation for $\frac{x + 1}{n + 2}$ and $\frac{x + 2}{n + 4}$ as alternatives. See <http://andrewgelman.com/2007/05/15>, for instance. We'll call this a *Bayesian augmentation*.
+
+## Using the `Love-431.R` script's `saifs_ci()` function
+
+Let's obtain a 90% CI using this augmentation.
+
+```{r}
+#| echo: true
+
+saifs_ci(x = 51, n = 326, conf.level = 0.90)
+```
+
+SAIFS refers to a confidence interval built for the proportion after single augmentation with one failure and one success.
+
+- Reed JF (2007) "[Better Binomial Confidence Intervals](https://digitalcommons.wayne.edu/cgi/viewcontent.cgi?article=1132&context=jmasm)" *J Modern Applied Stat Methods* 6:1. 
+
+## When does this matter?
+
+Estimates with and without the augmentation will be generally comparable, so long as...
+
+a.  the sample size is more than, say, 30 subjects, and/or
+b.  the sample probability of the outcome is between 0.1 and 0.9
+
+## What if x = 0 or x = n?
+
+The **Rule of Three** approach is often used.
+
+-   An approximate 95% CI for the proportion in a setting where x = 0 in n trials is $(0, \frac{3}{n})$
+
+-   An approximate 95% CI for the proportion where x = n in n trials is $(1 - \frac{3}{n}, 1)$
+
+# Comparing Population Proportions
+
+## Comparing Population Proportions 
+
+Suppose we compare population proportions $\pi_1$ and $\pi_2$, based on samples of sizes $n_1$ and $n_2$.
+
+1.  The individual observations in exposure group 1 are not linked/matched to individual observations in exposure group 2. (Independent Samples)
+2.  Each individual observation in exposure group 1 is linked or matched to a specific observation in exposure group 2. (Paired Samples)
+
+## Paired/Matched vs. Unmatched/Independent Samples
+
+The determination as to whether the study design creates paired or independent samples can be determined without summarizing the data. It's a function of the sampling design, not the responses.
+
+## A Polling Example (1/2)
+
+-   200 adult Ohio residents agreed to participate in a poll both two months ago and again today. Each of the 200 people met the polling organization's standards for a "likely voter in the next election". 100 of those polled were under the age of 50 and the rest were 50 or older.
+-   In between the two polls, a major news event occurred which was relevant to Candidate X.
+
+We asked them the same question at both times: "Are you considering voting for Candidate X?"
+
+## A Polling Example (2/2)
+
+We are interested in understanding what the data tell us about:
+
+1.  Were people under age 50 more likely to be considering Candidate X than people ages 50 and higher?
+2.  Were people more likely to be considering Candidate X after the news event than before?
+
+Which of these uses *independent* samples, and which *paired* samples?
+
+# Comparing Proportions using Independent Samples
+
+## Visual Abstract: NICU Sequencing Paper
+
+![](c11/images/NICU_abstract.png)
+
+## NICU Sequencing Example
+
+Let's compare the proportion who have a COM between:
+
+-   Group 1: infants tested early (15 d after enrollment)
+-   Group 2: infants tested later (60 d after enrollment)
+
+```{r}
+#| echo: true
+nicu |> count(interv, outcome)
+```
+
+-   How might we rearrange this information? Exposure? Outcome?
+
+## The Table We'd Like To Get To
+
+Let's compare the proportion who have a COM between:
+
+-   Group 1: infants tested early (at 15 d)
+-   Group 2: infants tested later (delayed to 60 d)
+
+### Standard Epidemiological Format
+
+-   rows are the exposure
+-   columns are the outcome
+
+What do we want in our setting?
+
+## Our Goal: Standard Epidemiological Format
+
+-   exposure is *intervention* (15 or 60 days)
+-   columns are *outcome* category (COM, No COM)
+
+```
+                     COM       No COM
+    Early (15 d)      a          b
+    Delayed (60 d)    c          d
+```
+
+## Our 2 x 2 Table
+
+```{r}
+#| echo: true
+nicu |> tabyl(interv, outcome)
+```
+
+-   Is this in standard epidemiological format, with the rows indicating the exposure, and the columns indicating the outcome, and the correct count in the top left cell?
+
+## Switching the Rows
+
+We want Early (15) to come first, before Delayed (60):
+
+```{r}
+#| echo: true
+nicu <- nicu |> mutate(interv = fct_relevel(interv, "Early (15)"))
+
+nicu |> tabyl(interv, outcome)
+```
+
+## Adding Totals
+
+```{r}
+#| echo: true
+nicu |> tabyl(interv, outcome) |> 
+  adorn_totals(where = c("row", "col"))
+```
+
+-   How many subjects do we have in each exposure group?
+-   How many subjects fall into each outcome group?
+
+## Augmenting the Table
+
+Can we augment the table to help us understand:
+
+-   What is the probability of achieving each of the two possible outcomes?
+-   How do the outcome probabilities differ by exposure group?
+
+```{r}
+#| echo: true
+#| output-location: slide
+nicu |> tabyl(interv, outcome) |> 
+  adorn_totals(where = c("row", "col")) |>
+  adorn_percentages(denom = "row") |>
+  adorn_pct_formatting(digits = 1) |>
+  adorn_ns(position = "front")
+```
+
+## Why am I using `denom = "row"` here?
+
+> Among these subjects, compare the proportion of early (15 d) tested infants with COM to the proportion of late (60 d) tested infants with COM.
+
+-   What are the sample estimates for the two rates I am comparing?
+
+## 2 x 2 Table: Comparing Probabilities
+
+|      --      |  COM | No COM | *Total* |
+|:------------:|-----:|-------:|--------:|
+|  Early (15)  |   34 |    127 |   *161* |
+| Delayed (60) |   17 |    148 |   *165* |
+|   *Total*    | *51* |  *275* |   *326* |
+
+-   Pr(COM \| Early) = 34/161 = `r round_half_up(34/161, 3)`
+-   Pr(COM \| Delayed) = 17/165 = `r round_half_up(17/165, 3)`
+-   The ratio of those two probabilities (risks) is `r round_half_up(34/161, 3)`/`r round_half_up(17/165, 3)` = `r round((34/161)/(17/165), 3)`.
+
+## CI for the Relative Risk?
+
+Can we build a confidence interval for the relative risk of COM now in the early tested infants as compared to the delayed tested infants?
+
+-   The difference in those risks is `r round_half_up(34/161, 3)` - `r round_half_up(17/165, 3)` = `r round_half_up(34/161 - 17/165, 3)`.
+
+How about a confidence interval for the risk difference, too?
+
+## 2 x 2 NICU Table: Odds Ratio
+
+|      --      |  COM | No COM | *Total* |
+|:------------:|-----:|-------:|--------:|
+|  Early (15)  |   34 |    127 |   *161* |
+| Delayed (60) |   17 |    148 |   *165* |
+|   *Total*    | *51* |  *275* |   *326* |
+
+-   Odds = Probability / (1 - Probability)
+-   Sample Odds of COM if Early = $\frac{34/161}{1 - (34/161)}$ = `r round_half_up((34/161)/(1-(34/161)), 3)`
+-   Sample Odds of COM if Delayed = $\frac{17/165}{1 - (17/165)}$ = `r round_half_up((17/165)/(1-(17/165)), 3)`
+-   Ratio of these two Odds are `r round_half_up(((34/161)/(1-(34/161))) / ((17/165)/(1-(17/165))),3)`.
+
+## In a 2x2 table, odds ratio = cross-product ratio.
+
+-   Here, the cross-product estimate = $\frac{34*148}{17*127}$ = `r round_half_up(34*148/(17*127),3)`.
+
+Can we build a confidence interval for the population odds ratio for COM given "early" as compared to "delayed" testing?
+
+## Using `twoby2` from the `Epi` package
+
+Once we have set up the factors for `interv` and `outcome` so that the table we produce is in standard epidemiological format, we can plug it into the `twoby2` function from the `Epi` package.
+
+## Using `twoby2` from the `Epi` package
+
+```{r}
+#| echo: true
+twoby2(table(nicu$interv, nicu$outcome))
+```
+
+## Interpreting the Output (1/3)
+
+```
+Outcome   : COM 
+Comparing : Early (15) vs. Delayed (60) 
+
+             COM No_COM    P(COM) 95% conf. interval
+Early (15)    34    127    0.2112     0.155   0.2810
+Delayed (60)  17    148    0.1030     0.065   0.1595
+```
+
+- Which exposure group showed the larger sample probability of receiving a change of management (COM) 60 days after enrollment?
+- Is there a meaningful difference in the probabilities across the two exposure groups (early testing vs. delayed testing?)
+
+## Interpreting the Output (2/3)
+
+```
+Outcome   : COM 
+Comparing : Early (15) vs. Delayed (60) 
+
+                                   95% conf. interval
+             Relative Risk: 2.0497    1.1942   3.5180
+         Sample Odds Ratio: 2.3307    1.2430   4.3701
+Conditional MLE Odds Ratio: 2.3247    1.1972   4.6617
+    Probability difference: 0.1081    0.0292   0.1871
+```
+
+- What does a relative risk of 1 mean? How does our RR compare?
+- What does an odds ratio of 1 mean? How does our sample Odds Ratio compare?
+- What does a probability difference of 0 mean? How does our risk difference compare?
+
+## What about the p values?
+
+The hypotheses being compared can be thought of in several ways...
+
+-   $H_0$: $\pi_1 = \pi_2$, vs. $H_A$: $\pi_1 \neq \pi_2$.
+-   $H_0$: Pr(COM \| Early) = Pr(COM \| Delayed) vs. $H_A$: Pr(COM \| Early) $\neq$ Pr(COM \| Delayed).
+-   $H_0$: rows and columns of the table are *independent*, in that the probability of COM in each row is the same vs. $H_A$: the rows and columns of the table are *associated*.
+
+## Interpreting the Output (3/3)
+
+
+```
+Outcome   : COM 
+Comparing : Early (15) vs. Delayed (60) 
+
+             Exact P-value: 0.0092 
+        Asymptotic P-value: 0.0083 
+```
+
+-   The `Exact P-value` comes from Fisher's exact test, and is technically exact only if we treat the row and column totals as being fixed.
+-   The `Asymptotic P-value` comes from a Pearson $\chi^2$ test.
+-   Neither approach is helpful if we don't have sufficient data to justify inference in the first place.
+
+## Using `twobytwo` from the `Love-431.R` script
+
+|      --      |  COM | No COM | *Total* |
+|:------------:|-----:|-------:|--------:|
+|  Early (15)  |   34 |    127 |   *161* |
+| Delayed (60) |   17 |    148 |   *165* |
+|   *Total*    | *51* |  *275* |   *326* |
+
+Code we need is:
+
+```{r}
+#| echo: true
+#| output-location: slide
+twobytwo(34, 127, 17, 148,  # note order of counts
+      "Early", "Delayed", # names of the rows
+      "COM", "NoCOM",  # names of the columns
+      conf.level = 0.99)  # default is 95% confidence
+```
+
+## Another Way to Create The Table
+
+Suppose we didn't have the data, just the visual abstract.
+
+```{r}
+#| echo: true
+
+t1 <- matrix(c(34, 127, 17, 148), byrow = TRUE, nrow = 2)
+rownames(t1) <- c("Early", "Delayed")
+colnames(t1) <- c("COM", "No_COM")
+addmargins(t1)
+```
+
+
+
+## Bayesian Augmentation in a 2x2 Table?
+
+Original command:
+
+```{r}
+#| echo: true
+#| eval: false
+twobytwo(34, 127, 17, 148, "Early", "Delayed", "COM", "NoCOM", 
+         conf.level = 0.99)
+```
+
+Bayesian augmentation approach: Add two successes and add two failures in each row...
+
+```{r}
+#| echo: true
+#| output-location: slide
+twobytwo(34+2, 127+2, 17+2, 148+2,  "Early", "Delayed", "COM", "NoCOM", 
+      conf.level = 0.99)  
+```
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

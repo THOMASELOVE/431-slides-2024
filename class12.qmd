@@ -1,0 +1,341 @@
+---
+title: "431 Class 12"
+author: Thomas E. Love, Ph.D.
+date: "2024-10-03"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    logo: 431_2024_logo.png
+    footer: "431 Class 12 | 2024-10-03 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+Contingency Tables (Sections 13-14 in Course Book) 
+
+- Some Reminders about 2 x 2 tables
+- Building a J x K Table
+- Chi-Square Tests of Independence
+    - Cochran Conditions and Checking Assumptions
+
+## Today's Packages
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+library(patchwork)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+
+source("c12/data/Love-431.R")
+```
+
+## TB Prevalence in IV Drug Users
+
+Suppose now that we are investigating factors affecting tuberculosis prevalence among intravenous drug users.
+
+-   Among 97 individuals who admit to sharing needles,
+    -   24 (24.7%) had a positive tuberculin skin test result.
+-   Among 161 drug users who deny sharing needles,
+    -   28 (17.4%) had a positive test result.
+
+What does the 2x2 table look like?
+
+## TB Prevalence In IV Drug Users
+
+The 2x2 Table is...
+
+```
+             TB+   TB-
+    share     24    73
+    don't     28   133
+```
+
+- Standard Epidemiological Format
+    - rows describe needle sharing
+    - columns describe TB test result
+-   row 1 people who share needles: 24 TB+, and 97-24 = 73 TB-
+-   row 2 people who don't share: 28 TB+ and 161-28 = 133 TB-
+
+## `twobytwo` (with Bayesian Augmentation)
+
+To start, we'll test the null hypothesis that the population proportions of intravenous drug users who have a positive tuberculin skin test result are identical for those who share needles and those who do not.
+
+$$
+H_0: \pi_{share} = \pi_{donotshare} \\
+H_A: \pi_{share} \neq \pi_{donotshare}
+$$
+
+We'll use the Bayesian augmentation.
+
+## `twobytwo` results (95% CI)
+
+```{r}
+#| echo: true
+twobytwo(24+2, 73+2, 28+2, 133+2, 
+         "Sharing", "Not Sharing", 
+         "TB test+", "TB test-", conf.level = 0.95)
+```
+
+
+## Change to 90% confidence?
+
+- What if we use a 90% confidence level instead?
+
+```{r}
+#| echo: false
+twobytwo(24+2, 73+2, 28+2, 133+2, 
+         "Sharing", "Not Sharing", 
+         "TB test+", "TB test-", conf.level = 0.90)
+```
+
+# Larger Contingency Tables
+
+## A $2 \times 3$ contingency table
+
+This table displays the count of patients who show *complete*, *partial*, or *no response* after treatment with either **active** medication or a **placebo** in a study of 100 patients...
+
+Group | None | Partial | Complete
+-----:| :---:| :----: | :-----:
+Active | 8 | 24 | 20
+Placebo | 12 | 26 | 10
+
+Is there a meaningful association here? 
+
+## The Pearson Chi-Square Test
+
+- $H_0$: Response Distribution is the same, regardless of Treatment.
+- $H_A$: There is an association between Treatment and Response.
+
+The Pearson $\chi^2$ test assumes the null hypothesis is true (rows and columns are independent.) That is a model for our data. How does it work? 
+
+## Calculating Chi-Square
+
+Here's the table, with marginal totals added.
+
+-- | None | Partial | Complete | **TOTAL**
+-------- | ------: | -----: | -----: | -----:
+Active   | 8 | 24 | 20 | **52**
+Placebo  | 12 | 26 | 10 | **48**
+**TOTAL** | **20** | **50** | **30** | **100**
+
+The test needs to estimate the expected frequency in each of the six cells under the assumption of independence. If the rows and columns were independent, what is the expected count in the Active/None cell?
+
+## The Independence Model
+
+-- | None | Partial | Complete | **TOTAL**
+---------: | ------: | -----: | -----: | -----:
+Active | -- | -- | -- | **52**
+Placebo | -- | -- | -- | **48**
+**TOTAL** | **20** | **50** | **30** | **100**
+
+If the rows and columns were independent, then: 
+
+- 20/100 of subjects would have response = "None"
+    - That's 20% of the 52 Active, and 20% of the 48 Placebo
+- 50% would have a "Partial" response, and 
+- 30% would have a "Complete" response in each group.
+
+## Observed (*Expected*) Cell Counts
+
+So, can we fill in the expected frequencies under our independence model?
+
+-- | None | Partial | Complete | **TOTAL**
+-------- | :------: | :-----: | :-----: | -----:
+Active   | 8 (*10.4*) | 24 (*26.0*) | 20 (*15.6*) | **52**
+Placebo  | 12 (*9.6*) | 26 (*24.0*) | 10 (*14.4*) | **48**
+**TOTAL** | **20** | **50** | **30** | **100**
+
+## General Formula for Expected Frequencies under Independence
+
+$$ 
+\mbox{Expected Frequency} = \frac{\mbox{Row total} \times \mbox{Column total}}{\mbox{Grand Total}}
+$$
+
+This assumes that the independence model holds: the probability of being in a particular column is exactly the same in each row, and vice versa.
+
+## Chi-Square Assumptions
+
+- Expected Frequencies: We assume that the expected frequency, under the null hypothesized model of independence, will be **at least 5** (and ideally at least 10) in each cell. If that is not the case, then the $\chi^2$ test is likely to give unreliable results. 
+- The *Cochran conditions* require us to have no cells with zero counts **and** at least 80% of the cells in our table with expected counts of 5 or higher. That's what R uses to warn you of trouble.
+- Don't meet the standards? Consider collapsing categories.
+
+## Observed (**Expected**) Cell Counts (again)
+
+-- | None | Partial | Complete | **TOTAL**
+-------- | :------: | :-----: | :-----: | -----:
+Active   | 8 (**10.4**) | 24 (**26.0**) | 20 (**15.6**) | 52
+Placebo  | 12 (**9.6**) | 26 (**24.0**) | 10 (**14.4**) | 48
+TOTAL | 20 | 50 | 30 | 100
+
+- Do we meet the Cochran conditions in this case?
+
+## Getting the Table into R
+
+We'll put the table into a matrix in R. Here's one approach...
+
+```{r}
+#| echo: true
+T1 <- matrix(c(8, 24, 20, 12, 26, 10), 
+             ncol=3, nrow=2, byrow=TRUE)
+rownames(T1) <- c("Active", "Placebo")
+colnames(T1) <- c("None", "Partial", "Complete")
+T1
+```
+
+```{r}
+#| echo: true
+chisq.test(T1)
+```
+
+
+## Chi-Square Test Results in R
+
+- $H_0$: Response Distribution is the same, regardless of Treatment.
+    - Rows and Columns of the table are *independent*
+- $H_A$: There is an association between Treatment and Response.
+    - Rows and Columns of the table are *associated*.
+
+- For our T1, the results were: $\chi^2$ = 4.0598, df = 2, *p* = 0.1313
+
+What is the conclusion?
+
+## Does Sample Size Affect The $\chi^2$ Test?
+
+- T1 results were: $\chi^2$ = 4.0598, df = 2, *p* = 0.1313
+- What if we had the same pattern, but twice as much data?
+
+```{r}
+#| echo: true
+T1_doubled <- T1*2
+T1_doubled
+chisq.test(T1_doubled)
+```
+
+## Fisher's exact test instead?
+
+Yes, but ... if the Pearson assumptions don't hold, then the Fisher's test is not generally an improvement. 
+
+```{r}
+#| echo: true
+fisher.test(T1)
+```
+
+- Intended for small-ish square tables, with the same number of rows as columns.
+
+## Returning to the DM-464 data 
+
+- We discussed these data (other variables) in Classes 5-7.
+
+```{r}
+#| echo: true
+dm1 <- read_csv("c12/data/dm464_class12.csv", show_col_types = FALSE) |>
+  janitor::clean_names() |>
+  mutate(tobacco = fct_relevel(tobacco, "Current", "Former"),
+           insurance = fct_relevel(insurance, "Medicare", 
+                                   "Commercial", "Medicaid"))
+
+dm1 |> tabyl(tobacco, insurance) |> 
+    adorn_totals(where = c("row", "col"))
+```
+
+## dm1: Bar Plots with Counts
+
+```{r}
+#| echo: true
+#| output-location: slide
+p1 <- ggplot(dm1, aes(x = insurance)) + geom_bar() + 
+    geom_text(aes(label = ..count..), stat = "count", 
+              vjust = 1.5, col = "white")
+
+p2 <- ggplot(dm1, aes(x = tobacco)) + geom_bar() + 
+    geom_text(aes(label = ..count..), stat = "count", 
+              vjust = 1.5, col = "white")
+
+p1 + p2 
+```
+
+## A $3 \times 3$ table with the `dm1` data
+
+```{r}
+#| echo: true
+
+dm1 |> 
+    tabyl(insurance, tobacco) |>
+    adorn_totals(where = c("row", "col"))
+```
+
+## Plotting a Cross-Tabulation?
+
+```{r}
+#| echo: true
+
+ggplot(dm1, aes(x = insurance, y = tobacco)) +
+    geom_count() 
+```
+
+## Tobacco Bar Chart faceted by Insurance
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(dm1, aes(x = tobacco, fill = tobacco)) + 
+    geom_bar() + facet_wrap(~ insurance) +
+    guides(fill = "none") + 
+    geom_text(aes(label = ..count..), stat = "count", 
+              vjust = 1, col = "black")
+```
+
+## Tobacco Status and Insurance in `dm1`
+
+- $H_0$: Insurance type and Tobacco status are independent
+- $H_A$: Insurance type and Tobacco status have a detectable association
+
+Pearson $\chi^2$ results?
+
+```{r}
+#| echo: true
+
+dm1 |> tabyl(insurance, tobacco) |> chisq.test()
+```
+
+Can we check our expected frequencies?
+
+## Checking Expected Frequencies
+
+```{r}
+#| echo: true
+
+res <- dm1 |> tabyl(insurance, tobacco) |> chisq.test()
+
+res$observed
+res$expected
+```
+
+Any problems with Cochran conditions?
+
+## Mosaic Plot for Cross-Tabulation
+
+Each rectangle's area is proportional to the number of cases in that cell.
+
+```{r}
+#| echo: true
+
+plot(dm1$insurance, dm1$tobacco, ylab = "", xlab = "")
+```
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

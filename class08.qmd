@@ -419,7 +419,7 @@ p1 <- ggplot(con_ols, aes(y = contr, x = Difference)) +
   geom_errorbar(aes(xmin = CI_low, xmax = CI_high)) +
   geom_vline(xintercept = 0, col = "red", lty = "dashed") +
   labs(title = "OLS fit",
-    subtitle = "Tukey 99% HSD Intervals for Health Outcomes",
+    subtitle = "Holm 99% HSD Intervals for Health Outcomes",
     y = "Contrast", x = "Difference in Health Outcomes Score")
 
 p2 <- ggplot(con_bay, aes(y = contr, x = Difference)) +
@@ -427,7 +427,7 @@ p2 <- ggplot(con_bay, aes(y = contr, x = Difference)) +
   geom_errorbar(aes(xmin = CI_low, xmax = CI_high)) +
   geom_vline(xintercept = 0, col = "red", lty = "dashed") +
   labs(title = "Bayesian fit",
-    subtitle = "Tukey 99% HSD Intervals for Health Outcomes",
+    subtitle = "Holm 99% HSD Intervals for Health Outcomes",
     y = "Contrast", x = "Difference in Health Outcomes Score")
 
 p1 + p2

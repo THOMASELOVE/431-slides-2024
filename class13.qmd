@@ -1,0 +1,576 @@
+---
+title: "431 Class 13"
+author: Thomas E. Love, Ph.D.
+date: "2024-10-08"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    logo: 431_2024_logo.png
+    footer: "431 Class 13 | 2024-10-08 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+Contingency Tables (Sections 13-14 in Course Book) 
+
+- Some Reminders about 2 x 2 tables
+- Building a J x K Table
+- Chi-Square Tests of Independence
+    - Cochran Conditions and Checking Assumptions
+- Statistical Significance: What I Taught for Many Years
+- Statistical Significance: What is the problem?
+
+## Today's Packages
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+library(patchwork)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+
+source("c13/data/Love-431.R")
+```
+
+## TB Prevalence in IV Drug Users
+
+Suppose now that we are investigating factors affecting tuberculosis prevalence among intravenous drug users.
+
+-   Among 97 individuals who admit to sharing needles,
+    -   24 (24.7%) had a positive tuberculin skin test result.
+-   Among 161 drug users who deny sharing needles,
+    -   28 (17.4%) had a positive test result.
+
+What does the 2x2 table look like?
+
+## TB Prevalence In IV Drug Users
+
+The 2x2 Table is...
+
+```
+             TB+   TB-
+    share     24    73
+    don't     28   133
+```
+
+- Standard Epidemiological Format
+    - rows describe needle sharing
+    - columns describe TB test result
+-   row 1 people who share needles: 24 TB+, and 97-24 = 73 TB-
+-   row 2 people who don't share: 28 TB+ and 161-28 = 133 TB-
+
+## `twobytwo` (with Bayesian Augmentation)
+
+To start, we'll test the null hypothesis that the population proportions of intravenous drug users who have a positive tuberculin skin test result are identical for those who share needles and those who do not.
+
+$$
+H_0: \pi_{share} = \pi_{donotshare} \\
+H_A: \pi_{share} \neq \pi_{donotshare}
+$$
+
+We'll use the Bayesian augmentation.
+
+## `twobytwo` results (95% CI)
+
+```{r}
+#| echo: true
+twobytwo(24+2, 73+2, 28+2, 133+2, 
+         "Sharing", "Not Sharing", 
+         "TB test+", "TB test-", conf.level = 0.95)
+```
+
+
+## Change to 90% confidence?
+
+- What if we use a 90% confidence level instead?
+
+```{r}
+#| echo: false
+twobytwo(24+2, 73+2, 28+2, 133+2, 
+         "Sharing", "Not Sharing", 
+         "TB test+", "TB test-", conf.level = 0.90)
+```
+
+# Larger Contingency Tables
+
+## A $2 \times 3$ contingency table
+
+This table displays the count of patients who show *complete*, *partial*, or *no response* after treatment with either **active** medication or a **placebo** in a study of 100 patients...
+
+Group | None | Partial | Complete
+-----:| :---:| :----: | :-----:
+Active | 8 | 24 | 20
+Placebo | 12 | 26 | 10
+
+Is there a meaningful association here? 
+
+## The Pearson Chi-Square Test
+
+- $H_0$: Response Distribution is the same, regardless of Treatment.
+- $H_A$: There is an association between Treatment and Response.
+
+The Pearson $\chi^2$ test assumes the null hypothesis is true (rows and columns are independent.) That is a model for our data. How does it work? 
+
+## Calculating Chi-Square
+
+Here's the table, with marginal totals added.
+
+-- | None | Partial | Complete | **TOTAL**
+-------- | ------: | -----: | -----: | -----:
+Active   | 8 | 24 | 20 | **52**
+Placebo  | 12 | 26 | 10 | **48**
+**TOTAL** | **20** | **50** | **30** | **100**
+
+The test needs to estimate the expected frequency in each of the six cells under the assumption of independence. If the rows and columns were independent, what is the expected count in the Active/None cell?
+
+## The Independence Model
+
+-- | None | Partial | Complete | **TOTAL**
+---------: | ------: | -----: | -----: | -----:
+Active | -- | -- | -- | **52**
+Placebo | -- | -- | -- | **48**
+**TOTAL** | **20** | **50** | **30** | **100**
+
+If the rows and columns were independent, then: 
+
+- 20/100 of subjects would have response = "None"
+    - That's 20% of the 52 Active, and 20% of the 48 Placebo
+- 50% would have a "Partial" response, and 
+- 30% would have a "Complete" response in each group.
+
+## Observed (*Expected*) Cell Counts
+
+So, can we fill in the expected frequencies under our independence model?
+
+-- | None | Partial | Complete | **TOTAL**
+-------- | :------: | :-----: | :-----: | -----:
+Active   | 8 (*10.4*) | 24 (*26.0*) | 20 (*15.6*) | **52**
+Placebo  | 12 (*9.6*) | 26 (*24.0*) | 10 (*14.4*) | **48**
+**TOTAL** | **20** | **50** | **30** | **100**
+
+## General Formula for Expected Frequencies under Independence
+
+$$ 
+\mbox{Expected Frequency} = \frac{\mbox{Row total} \times \mbox{Column total}}{\mbox{Grand Total}}
+$$
+
+This assumes that the independence model holds: the probability of being in a particular column is exactly the same in each row, and vice versa.
+
+## Chi-Square Assumptions
+
+- Expected Frequencies: We assume that the expected frequency, under the null hypothesized model of independence, will be **at least 5** (and ideally at least 10) in each cell. If that is not the case, then the $\chi^2$ test is likely to give unreliable results. 
+- The *Cochran conditions* require us to have no cells with zero counts **and** at least 80% of the cells in our table with expected counts of 5 or higher. That's what R uses to warn you of trouble.
+- Don't meet the standards? Consider collapsing categories.
+
+## Observed (**Expected**) Cell Counts (again)
+
+-- | None | Partial | Complete | **TOTAL**
+-------- | :------: | :-----: | :-----: | -----:
+Active   | 8 (**10.4**) | 24 (**26.0**) | 20 (**15.6**) | 52
+Placebo  | 12 (**9.6**) | 26 (**24.0**) | 10 (**14.4**) | 48
+TOTAL | 20 | 50 | 30 | 100
+
+- Do we meet the Cochran conditions in this case?
+
+## Getting the Table into R
+
+We'll put the table into a matrix in R. Here's one approach...
+
+```{r}
+#| echo: true
+T1 <- matrix(c(8, 24, 20, 12, 26, 10), 
+             ncol=3, nrow=2, byrow=TRUE)
+rownames(T1) <- c("Active", "Placebo")
+colnames(T1) <- c("None", "Partial", "Complete")
+T1
+```
+
+```{r}
+#| echo: true
+chisq.test(T1)
+```
+
+
+## Chi-Square Test Results in R
+
+- $H_0$: Response Distribution is the same, regardless of Treatment.
+    - Rows and Columns of the table are *independent*
+- $H_A$: There is an association between Treatment and Response.
+    - Rows and Columns of the table are *associated*.
+
+- For our T1, the results were: $\chi^2$ = 4.0598, df = 2, *p* = 0.1313
+
+What is the conclusion?
+
+## Does Sample Size Affect The $\chi^2$ Test?
+
+- T1 results were: $\chi^2$ = 4.0598, df = 2, *p* = 0.1313
+- What if we had the same pattern, but twice as much data?
+
+```{r}
+#| echo: true
+T1_doubled <- T1*2
+T1_doubled
+chisq.test(T1_doubled)
+```
+
+## Fisher's exact test instead?
+
+Yes, but ... if the Pearson assumptions don't hold, then the Fisher's test is not generally an improvement. 
+
+```{r}
+#| echo: true
+fisher.test(T1)
+```
+
+- Intended for small-ish square tables, with the same number of rows as columns.
+
+## Returning to the DM-464 data 
+
+- We discussed these data (other variables) in Classes 5-7.
+
+```{r}
+#| echo: true
+dm1 <- read_csv("c13/data/dm464_class12.csv", show_col_types = FALSE) |>
+  janitor::clean_names() |>
+  mutate(tobacco = fct_relevel(tobacco, "Current", "Former"),
+           insurance = fct_relevel(insurance, "Medicare", 
+                                   "Commercial", "Medicaid"))
+
+dm1 |> tabyl(tobacco, insurance) |> 
+    adorn_totals(where = c("row", "col"))
+```
+
+## dm1: Bar Plots with Counts
+
+```{r}
+#| echo: true
+#| output-location: slide
+p1 <- ggplot(dm1, aes(x = insurance)) + geom_bar() + 
+    geom_text(aes(label = ..count..), stat = "count", 
+              vjust = 1.5, col = "white")
+
+p2 <- ggplot(dm1, aes(x = tobacco)) + geom_bar() + 
+    geom_text(aes(label = ..count..), stat = "count", 
+              vjust = 1.5, col = "white")
+
+p1 + p2 
+```
+
+## A $3 \times 3$ table with the `dm1` data
+
+```{r}
+#| echo: true
+
+dm1 |> 
+    tabyl(insurance, tobacco) |>
+    adorn_totals(where = c("row", "col"))
+```
+
+## Plotting a Cross-Tabulation?
+
+```{r}
+#| echo: true
+
+ggplot(dm1, aes(x = insurance, y = tobacco)) +
+    geom_count() 
+```
+
+## Tobacco Bar Chart faceted by Insurance
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(dm1, aes(x = tobacco, fill = tobacco)) + 
+    geom_bar() + facet_wrap(~ insurance) +
+    guides(fill = "none") + 
+    geom_text(aes(label = ..count..), stat = "count", 
+              vjust = 1, col = "black")
+```
+
+## Tobacco Status and Insurance in `dm1`
+
+- $H_0$: Insurance type and Tobacco status are independent
+- $H_A$: Insurance type and Tobacco status have a detectable association
+
+Pearson $\chi^2$ results?
+
+```{r}
+#| echo: true
+
+dm1 |> tabyl(insurance, tobacco) |> chisq.test()
+```
+
+Can we check our expected frequencies?
+
+## Checking Expected Frequencies
+
+```{r}
+#| echo: true
+
+res <- dm1 |> tabyl(insurance, tobacco) |> chisq.test()
+
+res$observed
+res$expected
+```
+
+Any problems with Cochran conditions?
+
+## Mosaic Plot for Cross-Tabulation
+
+Each rectangle's area is proportional to the number of cases in that cell.
+
+```{r}
+#| echo: true
+
+plot(dm1$insurance, dm1$tobacco, ylab = "", xlab = "")
+```
+
+# What's Wrong with Statistical Significance? 
+
+## Comparing 2 Means (Unmatched)
+
+In the old days, I used to teach...
+
+$$
+H_0: \mu_1 = \mu_2 \mbox{ vs. } H_A: \mu_1 \neq \mu_2
+$$
+
+- Decide on a significance level $\alpha$, usually 0.05
+- Select the most appropriate test, and calculate the $p$-value.
+- If the $p$-value is below $\alpha$, declare statistical significance.
+- Otherwise, retain the null hypothesis that the means (may be) equal.
+
+## Comparing 2 Means (Matched)
+
+In the old days, let $\delta$ be the (true) mean of the paired differences.
+
+$$
+H_0: \delta = 0 \mbox{ vs. } H_A: \delta \neq 0
+$$
+
+- Decide on a significance level $\alpha$, usually 0.05.
+- Select the most appropriate test, and calculate the $p$-value.
+- If the $p$-value is below $\alpha$, declare statistical significance.
+- Otherwise, retain the null hypothesis that the mean of the differences (may be) zero.
+
+## Confidence Intervals and p-values
+
+In the old days, I used to teach...
+
+If the 95% confidence interval doesn't include the null hypothesized value, then the $p$ value is below 0.05, and again...
+
+- If the $p$-value is below 0.05, declare statistical significance at the 95% confidence level.
+- Otherwise, retain the null hypothesis that the mean of the differences (may be) zero.
+
+## Conventions for Reporting *p* Values {.smaller}
+
+I also spent meaningful time on making your work look like everyone else...
+
+1. Use an italicized, lower-case *p* to specify the *p* value. Don't use *p* for anything else.
+2. For *p* values above 0.10, round to two decimal places, at most. 
+3. For *p* values near $\alpha$, include only enough decimal places to clarify the reject/retain decision. 
+4. For very small *p* values, always report either *p* < 0.0001 or even just *p* < 0.001, rather than specifying the result in scientific notation, or, worse, as $p = 0$ which is glaringly inappropriate.
+5. Report *p* values above 0.99 as *p* > 0.99, rather than *p* = 1.
+
+## What I Taught for Many Years {.smaller}
+
+- Null hypothesis significance testing is here to stay.
+    - Learn how to present your p value so it looks like what everyone else does
+    - Think about "statistically detectable" rather than "statistically significant"
+    - Don't accept a null hypothesis, just retain it.
+- Use point **and** interval estimates
+    - Try to get your statements about confidence intervals right (right = just like I said it)
+- Use Bayesian approaches/simulation/hierarchical models when they seem appropriate or for "non-standard" designs
+    - But look elsewhere for people to teach/do that stuff
+- Power is basically a hurdle to overcome in a grant application
+
+## From George Cobb - on why *p* values deserve to be re-evaluated {.smaller}
+
+The **idea** of a p-value as one possible summary of evidence
+
+morphed into a
+
+- **rule** for authors:  reject the null hypothesis if p < .05.
+
+## From George Cobb - on why *p* values deserve to be re-evaluated {.smaller}
+
+The **idea** of a p-value as one possible summary of evidence
+
+morphed into a
+
+- **rule** for authors:  reject the null hypothesis if p < .05,
+
+which morphed into a
+
+- **rule** for editors:  reject the submitted article if p > .05.
+
+## From George Cobb - on why *p* values deserve to be re-evaluated {.smaller}
+
+The **idea** of a p-value as one possible summary of evidence
+
+morphed into a
+
+- **rule** for authors:  reject the null hypothesis if p < .05,
+
+which morphed into a
+
+- **rule** for editors:  reject the submitted article if p > .05,
+
+which morphed into a
+
+- **rule** for journals:  reject all articles that report p-values\footnote{http://www.nature.com/news/psychology-journal-bans-p-values-1.17001 describes the recent banning of null hypothesis significance testing by {\it Basic and Applied Psychology}.} 
+
+## From George Cobb - on why *p* values deserve to be re-evaluated {.smaller}
+
+The **idea** of a p-value as one possible summary of evidence
+
+morphed into a
+
+- **rule** for authors:  reject the null hypothesis if p < .05, which morphed into a
+
+- **rule** for editors:  reject the submitted article if p > .05, which morphed into a
+
+- **rule** for journals:  reject all articles that report p-values. 
+
+Bottom line:  **Reject rules.  Ideas matter.**
+
+---
+
+![](c13/images/bear.png)
+
+# American Statistical Association to the rescue!?!
+
+## The American Statistical Association
+
+2016
+
+- Ronald L. Wasserstein & Nicole A. Lazar (2016) [The ASA's Statement on p-Values: Context, Process, and Purpose](https://www.tandfonline.com/doi/full/10.1080/00031305.2016.1154108), *The American Statistician*, 70:2, 129-133, DOI: [10.1080/00031305.2016.1154108](https://doi.org/10.1080/00031305.2016.1154108)
+
+
+2019
+
+- Ronald L. Wasserstein, Allen L. Schirm & Nicole A. Lazar (2019) [Moving to a World Beyond "p < 0.05"](https://www.tandfonline.com/doi/full/10.1080/00031305.2019.1583913), *The American Statistician*, 73:sup1, 1-19, DOI: [10.1080/00031305.2019.1583913](https://doi.org/10.1080/00031305.2019.1583913). 
+
+## Statistical Inference in the 21st Century
+
+> ... a world learning to venture beyond "p < 0.05"
+
+> This is a world where researchers are free to treat "p = 0.051" and "p = 0.049" as not being categorically different, where authors no longer find themselves constrained to selectively publish their results based on a single magic number. 
+
+## Statistical Inference in the 21st Century {.smaller}
+
+> In this world, where studies with "p < 0.05" and studies with "p > 0.05" are not automatically in conflict, researchers will see their results more easily replicated -- and, even when not, they will better understand why.
+
+> The 2016 ASA Statement on P-Values and Statistical Significance started moving us toward this world. As of the date of publication of this special issue, the statement has been viewed over 294,000 times and cited over 1700 times-an average of about 11 citations per week since its release. Now we must go further.
+
+## The American Statistical Association Statement on P values and Statistical Significance
+
+The ASA Statement (2016) was mostly about what **not** to do.
+
+The 2019 effort represents an attempt to explain what to do.
+
+## ASA 2019 Statement
+
+> Some of you exploring this special issue of The American Statistician might be wondering if it's a scolding from pedantic statisticians lecturing you about what not to dowith p-values, without
+offering any real ideas of what to do about the very hard problem of separating signal from noise in data and making decisions under uncertainty. Fear not. In this issue, thanks to 43 innovative
+and thought-provoking papers from forward-looking statisticians, help is on the way.
+
+## "Don't" is not enough. 
+
+> If you're just arriving to the debate, here's a sampling of what not to do.
+
+- Don't base your conclusions solely on whether an association or effect was found to be "statistically significant" (i.e., the *p* value passed some arbitrary threshold such as p < 0.05).
+- Don't believe that an association or effect exists just because it was statistically significant.
+
+## "Don't" is not enough. 
+
+- Don't believe that an association or effect is absent just because it was not statistically significant.
+- Don't believe that your p-value gives the probability that chance alone produced the observed association or effect or the probability that your test hypothesis is true.
+- Don't conclude anything about scientific or practical importance based on statistical significance (or lack thereof).
+
+
+
+## Problems with *p* Values
+
+1. *P* values are inherently unstable
+2. The *p* value, or statistical significance, does not measure the size of an effect or the importance of a result
+3. Scientific conclusions should not be based only on whether a *p* value passes a specific threshold
+4. Proper inference requires full reporting and transparency
+5. By itself, a *p* value does not provide a good measure of evidence regarding a model or hypothesis
+
+<http://jamanetwork.com/journals/jamaotolaryngology/fullarticle/2546529>
+
+## One More Don't...
+
+![](c13/images/ASA2019_1.png)
+
+> A label of statistical significance adds nothing to what is already conveyed by the value of *p*; in fact, this dichotomization of *p*-values makes matters worse.
+
+## Gelman on *p* values, 1
+
+> The common practice of dividing data comparisons into categories based on significance levels is terrible, but it happens all the time.... so it's worth examining the prevalence of this error. Consider, for example, this division: 
+
+- "really significant" for *p* < .01, 
+- "significant" for *p* < .05, 
+- "marginally significant" for *p* < .1, and 
+- "not at all significant" otherwise. 
+
+## Gelman on *p* values, 2
+
+Now consider some typical *p*-values in these ranges: say, *p* = .005, *p* = .03, *p* = .08, and *p* = .2. 
+
+Translate these two-sided *p*-values back into z-scores...
+
+Description | really sig. | sig. | marginally sig.| not at all sig.
+---------: | ----: | ----: | ----: | ----:
+*p* value | 0.005 | 0.03 | 0.08 | 0.20
+Z score | 2.8 | 2.2 | 1.8 | 1.3
+
+## Gelman on *p* values, 3
+
+The seemingly yawning gap in p-values comparing the not at all significant *p*-value of .2 to the really significant *p*-value of .005, is only a z score of 1.5. 
+
+If you had two independent experiments with z-scores of 2.8 and 1.3 and with equal standard errors and you wanted to compare them, you'd get a difference of 1.5 with a standard error of 1.4, which is completely consistent with noise.
+
+## Gelman on *p* values, 4
+
+From a **statistical** point of view, the trouble with using the p-value as a data summary is that the p-value can only be interpreted in the context of the null hypothesis of zero effect, and (much of the time), nobody's interested in the null hypothesis. 
+
+Indeed, once you see comparisons between large, marginal, and small effects, the null hypothesis is irrelevant, as you want to be comparing effect sizes.
+
+## Gelman on *p* values, 5
+
+From a **psychological** point of view, the trouble with using the p-value as a data summary is that this is a kind of deterministic thinking, an attempt to convert real uncertainty into firm statements that are just not possible (or, as we would say now, just not replicable).
+
+**The key point**: The difference between statistically significant and NOT statistically significant is not, generally, statistically significant.
+
+<http://andrewgelman.com/2016/10/15/marginally-significant-effects-as-evidence-for-hypotheses-changing-attitudes-over-four-decades/>
+
+## So what is the problem?
+
+If I have to boil it down to one thing, it's not that p values or confidence intervals are inherently bad data summaries, although their interpretation is by no means straightforward.
+
+It's that the whole notion of statistical significance is the problem.
+
+- Working your data to provide a single "yes/no" answer instead of embracing its variation and understanding what the data suggest thoroughly is the problem.
+
+## Much more to come
+
+next time...
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

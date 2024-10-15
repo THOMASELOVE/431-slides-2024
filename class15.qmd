@@ -1,0 +1,370 @@
+---
+title: "431 Class 15"
+author: Thomas E. Love, Ph.D.
+date: "2024-10-15"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    logo: 431_2024_logo.png
+    footer: "431 Class 15 | 2024-10-15 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+- Ingesting the Favorite Movies 2024-10-15 data from our Shared Folder in Google Drive
+- Creating an Analytic Data Set
+
+### Three Analyses using the Favorite Movies Data
+
+1. Quantitative Outcome and a Quantitative Predictor 
+2. Quantitative Outcome and a Categorical Predictor
+3. Comparing Means of a Quantity with Matched Samples
+
+## Today's Packages
+
+```{r}
+#| echo: true
+#| message: false
+
+library(janitor)
+library(glue)
+library(googlesheets4)
+library(infer)
+library(patchwork)
+library(rstanarm)
+library(xfun)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_light())
+
+source("c15/data/Love-431.R")
+```
+
+## Ingest the `movies_2024-10-15` data
+
+```{r}
+#| echo: true
+gs4_deauth()
+
+url <- "https://docs.google.com/spreadsheets/d/16fm1693sFjau9sIM-ORamxLL3ZMrBeRSxXqWpP8IBDs/edit?gid=0#gid=0"
+
+mov_raw <- read_sheet(url, na = c("", "NA"))
+
+mov_cleaning <- mov_raw |> 
+  janitor::clean_names() |>
+  mutate(across(where(is.character), as_factor)) |>
+  mutate(across(c(mov_id, movie, director, star_1, star_2, star_3, origin,
+                  fc_link, rt_link, imdb_cats, synopsis, imdb_id, imdb_link),
+                as.character))
+
+dim(mov_cleaning)
+```
+
+## Select 35 Variables for Analyses
+
+### 15 Quantitative Variables
+
+```{r}
+#| echo: true
+v_quant <- c("year", "length", "imdb_ratings", "imdb_stars", "imdb_pct10",
+             "metascore", "awards", "budget", "gross_world", "fc_pctwins", 
+             "rt_critic", "rt_audience", "theaters", "box_2023", "triggers")
+```
+
+### 10 Binary Categorical Variables
+
+```{r}
+#| echo: true
+v_binary <- c("gen_1", "color", "dr_love", "drama", "comedy",
+              "st_apple", "st_prime", "st_disney", "st_max", "st_paramount")
+```
+
+### 10 Multi-Categorical Variables or Small Counts
+
+```{r}
+#| echo: true
+v_multi <- c("mpa", "lang_1", "list_24", "bw_rating", "oscars", 
+             "ebert", "stream_n", "kim_sn", "kim_vg", "kim_lang")
+```
+
+
+## Create `mov_a` with 37 variables
+
+```{r}
+#| echo: true
+mov_a <- mov_cleaning |> select(mov_id, movie, 
+                                all_of(v_quant), all_of(v_binary), 
+                                all_of(v_multi))
+
+dim(mov_a)
+```
+
+## Check Variable Types
+
+```{r}
+#| echo: true
+glimpse(mov_a)
+```
+
+## Quantities
+
+```{r}
+#| echo: true
+
+mov_a |> select(year:triggers) |> summary()
+```
+
+## Binary Variables
+
+```{r}
+#| echo: true
+
+mov_a |> select(gen_1:st_paramount) |> summary()
+```
+
+## Multi-Categorical Variables
+
+```{r}
+#| echo: true
+
+mov_a |> select(mpa:kim_lang) |> summary()
+```
+
+# Analysis 1 (Quantitative Outcome and a Quantitative Predictor)
+
+## Analysis 1
+
+- How strong is the association between `metascore` and `imdb_stars`?
+
+```{r}
+#| echo: true
+
+mov_a1 <- mov_a |> filter(complete.cases(metascore, imdb_stars))
+
+mov_a1 |> reframe(lovedist(metascore))
+mov_a1 |> reframe(lovedist(imdb_stars))
+```
+
+## Plot our set of 214 movies
+
+```{r}
+#| echo: true
+#| fig-height: 3
+#| fig-width: 4
+
+ggplot(mov_a1, aes(x = metascore, y = imdb_stars)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE, col = "red") +
+  geom_smooth(method = "loess", formula = y ~ x, se = F, col = "blue")
+```
+
+## Which movies are the outliers?
+
+```{r}
+#| echo: true
+mov_a1 |> filter(imdb_stars < 5) |> 
+  select(mov_id, movie, imdb_stars, metascore)
+```
+
+## What if we ignored these two movies?
+
+```{r}
+#| echo: true
+ 
+mov_a1_new <- mov_a |> filter(imdb_stars > 5, complete.cases(metascore))
+
+mov_a1_new |> reframe(lovedist(metascore))
+mov_a1_new |> reframe(lovedist(imdb_stars))
+```
+
+## Plot our new set of 212 movies
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(mov_a1_new, aes(x = metascore, y = imdb_stars)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE, col = "red") +
+  geom_smooth(method = "loess", formula = y ~ x, se = F, col = "blue") +
+  labs(title = "Positive Association between metascore and star ratings",
+       subtitle = glue("Scatterplot of ", nrow(mov_a1_new), 
+                       " movies with more than 5 stars on IMDB"))
+```
+
+## Fit Model to our 212 Movies
+
+```{r}
+#| echo: true
+
+set.seed(20241015)
+
+fit1 <- stan_glm(imdb_stars ~ metascore, data = mov_a1_new, refresh = 0)
+
+model_parameters(fit1)
+
+model_performance(fit1)
+```
+
+## Check the model
+
+```{r}
+#| echo: true
+check_model(fit1)
+```
+
+# Analysis 2 (Quantitative Outcome and a Categorical Predictor)
+
+## Analysis 2
+
+- Are higher `fc_pctwins` scores associated with higher levels of `bw_score`?
+
+Variable | Description
+-------- | -------------------------------------------
+`fc_pctwins` | % of matchups won on flickchart
+`bw_rating` | Bechdel-Wallace Test Criteria Met (0-3)
+
+- `bw_rating` counts these standards: (1) The movie has to have at least two named women in it. (2) Who talk to each other (3) About something besides a man.
+
+## Create ordered factor `bw_score`
+
+Here, we'll treat the `bw_rating` as a factor.
+
+```{r}
+#| echo: true
+mov_a2 <- mov_a |> 
+  filter(complete.cases(fc_pctwins, bw_rating)) |>
+  mutate(bw_score = factor(bw_rating))
+
+mov_a2 |> count(bw_score)
+
+mov_a2 |> reframe(lovedist(fc_pctwins))
+```
+
+## Plot of these 218 movies
+
+```{r}
+#| echo: true
+
+ggplot(mov_a2, aes(x = bw_score, y = fc_pctwins)) +
+  geom_violin() +
+  geom_boxplot(width = 0.3, notch = TRUE) +
+  stat_summary(fun = "mean", geom = "point", size = 2, col = "red")
+```
+
+
+## Fit ANOVA model
+
+```{r}
+#| echo: true
+
+fit2 <- lm(fc_pctwins ~ bw_score, data = mov_a2)
+anova(fit2)
+eta_squared(fit2)
+```
+
+## Model `fit2` summaries
+
+```{r}
+#| echo: true
+
+model_parameters(fit2)
+
+model_performance(fit2)
+```
+
+## Pairwise comparisons (Holm method)
+
+```{r}
+#| echo: true
+estimate_contrasts(fit2, contrast = "bw_score", p_adjust = "Holm") 
+```
+
+# Analysis 3 (Comparing Means of a Quantity with Matched Samples)
+
+## Audience Score vs. Critic Score
+
+From Rotten Tomatoes, we have, for almost every movie...
+
+- `rt_audience`: Popcornmeter (audience verified ratings on scale 0-100)
+- `rt_critic`: Tomatometer (critic ratings on scale 0-100)
+
+```{r}
+#| echo: true
+
+mov_a3 <- filter(mov_a, complete.cases(rt_audience, rt_critic))
+
+mov_a3 |> select(mov_id, movie, rt_audience, rt_critic) |> 
+  arrange(rt_audience) |> tail(3)
+```
+
+## Some Summaries for Analysis 3
+
+```{r}
+#| echo: true
+mov_a3 |> reframe(lovedist(rt_audience))
+mov_a3 |> reframe(lovedist(rt_critic))
+
+correlation(mov_a3 |> select(rt_audience, rt_critic))
+```
+
+## Paired Differences in Analysis 3
+
+```{r}
+#| echo: true
+#| fig-height: 3
+
+mov_a3 <- mov_a3 |> mutate(acdiff = rt_audience - rt_critic)
+
+mov_a3 |> reframe(lovedist(acdiff))
+
+ggplot(mov_a3, aes(x = acdiff, y = "n = 224")) +
+  geom_violin() + geom_boxplot(width = 0.3) +
+  stat_summary(fun = "mean", geom = "point", col = "red", size = 2) +
+  labs(y = "")
+```
+
+## Some Extreme Differences (A3)
+
+```{r}
+#| echo: true
+mov_a3_sorted <- mov_a3 |>
+  select(mov_id, movie, rt_audience, rt_critic, acdiff) |>
+  arrange(desc(acdiff)) 
+
+mov_a3_sorted |> head(4)
+mov_a3_sorted |> tail(4)
+```
+
+## Bootstrap CI
+
+Thanks to the outliers, we'll use a bootstrap to estimate the mean of the paired (audience - critic) rating differences.
+
+```{r}
+#| echo: true
+set.seed(20241015)
+res3 <- mov_a3 |>
+  specify(response = acdiff) |> 
+  generate(reps = 2000, type = "bootstrap") |>
+  calculate(stat = "mean") |> 
+  get_confidence_interval(level = 0.95, type = "percentile")
+
+res3 |>
+  mutate(pt_est = mean(mov_a3$acdiff)) |>
+  relocate(pt_est)
+```
+
+# That's it for the slides. Next we'll do [Breakout Activity 3](https://github.com/THOMASELOVE/431-classes-2024/blob/main/movies/breakout3.md) for the Favorite Movies
+
+
+## Session Information
+
+```{r}
+#| echo: true
+session_info()
+```

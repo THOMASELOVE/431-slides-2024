@@ -1,0 +1,564 @@
+---
+title: "431 Class 18"
+author: Thomas E. Love, Ph.D.
+date: "2024-10-29"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 18 | 2024-10-29 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+Two-Factor (Two-Way) Analysis of Variance
+
+- The importance of interaction
+- Interpreting ANOVA output
+- What are the key model checks for ANOVA?
+- Comparing Model Performance Indices
+- What if we add a covariate?
+
+## R Packages
+
+```{r}
+#| echo: true
+
+library(janitor)
+library(readxl)
+library(easystats)
+library(tidyverse)
+
+source("c18/data/Love-431.R")
+knitr::opts_chunk$set(comment = NA)
+
+theme_set(theme_bw())
+```
+
+## The dm464 data, in full
+
+We've discussed subsets of these data in previous classes.
+
+```{r}
+#| echo: true
+dm464 <- read_xlsx("c18/data/dm464.xlsx") |>
+  janitor::clean_names() |>
+  mutate(across(where(is.character), as_factor)) |>
+  mutate(id_code = as.character(id_code),
+         smoke_start = fct_relevel(smoke_start, "Current", "Former"),
+         smoke_end = fct_relevel(smoke_end, "Current", "Former"),
+         insur_start = fct_relevel(insur_start, "Medicare", 
+                                   "Commercial", "Medicaid"),
+         insur_end = fct_relevel(insur_end, "Medicare", 
+                                   "Commercial", "Medicaid"))
+
+dim(dm464)
+```
+
+## Descriptions for Today's Variables {.smaller}
+
+-   Cohort of 464 English-speaking adults with diabetes measured at the start and end of a two-year period.
+
+| Variable | Description |
+|---------------:|:-------------------------------------------------------|
+| `id_code` | DM-xxxx code to identify subjects (not consecutive) |
+| `bmi_end` | Body Mass Index in $(kg/m^2)$ at the end of the period |
+| `dep_start` | Depression diagnosis at the start of the period (1 = yes, 0 = no) |
+| `ed_start` | High = more than 78% of adult residents of subject's home neighborhood graduated high school, vs. Low = no more than 78%. |
+| `insur_start` | Subject's insurance status at the start (3 levels) |
+
+-   78% was close to the median value of the quantitative measure of high school graduation rate among enrolled subjects at the start of the period.
+-   All subjects have either Medicare, Commercial or Medicaid insurance.
+
+## Today's Variables
+
+```{r}
+#| echo: true
+dm18 <- dm464 |>
+  mutate(ed_start = factor(ifelse(nedlev_start > 78, "High", "Low")),
+         dep_start = factor(depdiag_start)) |>
+  select(id_code, bmi_end, dep_start, ed_start, insur_start)
+
+head(dm18)
+```
+
+## `data_codebook()` results
+
+```{r}
+#| echo: true
+data_codebook(dm18 |> select (-id_code))
+```
+
+# Two-Factor Analysis of Variance: Example 1
+
+## Example 1
+
+Suppose we want to simultaneously understand the impacts of two factors on BMI at the end of the period, specifically:
+
+-   `dep_start` (1 or 0), and
+-   `ed_start` (Low or High)
+
+and it is possible that the impact of depression diagnosis on BMI may depend on the home neighborhood's educational attainment, and vice versa (i.e. depression and education may **interact**.)
+
+## An interaction plot is a plot of means.
+
+Calculate and store the group means.
+
+```{r}
+#| echo: true
+ex1_means <- dm18 |>
+  group_by(dep_start, ed_start) |>
+  summarize(mean_bmi = mean(bmi_end))
+
+ex1_means
+```
+
+## How strong is the interaction?
+
+Now, we'll plot these means, and look for a substantial interaction (non-parallel lines.)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(ex1_means, aes(x = dep_start, y = mean_bmi)) +
+  geom_line(aes(group = ed_start, color = ed_start)) +
+  geom_point(aes(color = ed_start)) +
+  scale_color_material() +
+  labs(title = "Example 1 Interaction Plot",
+       subtitle = "Do we see substantially non-parallel lines?",
+       y = "Mean BMI at end of period", 
+       x = "Depression Diagnosis (1 = yes, 0 = no)", 
+       color = "HS Graduation Rate")
+```
+
+## Two-Way ANOVA without interaction
+
+This model predicts our outcome (`bmi_end`) using the two factors as main effects only (with no interaction.)
+
+```{r}
+#| echo: true
+
+mainfx <- lm(bmi_end ~ dep_start + ed_start, data = dm18)
+
+mainfx
+```
+
+$$
+bmi_{end} = 32.98 + 3.452 (dep_{start} = 1) + 1.555 (ed_{start} = Low) 
+$$
+
+## Interpret the estimate: 3.45?
+
+```{r}
+#| echo: true
+model_parameters(mainfx, ci = 0.90)
+```
+
+> -   If we have two subjects who live in neighborhoods with the same `ed_start` value, but only one has a depression diagnosis at the start of the period, then **on average** the subject with a depression diagnosis will have a BMI that is 3.45 $kg/m^2$ higher than the subject without such a diagnosis, according to our `mainfx` model.
+
+## Interpret the estimate: 1.56?
+
+```{r}
+#| echo: true
+model_parameters(mainfx, ci = 0.90)
+```
+
+> -   Our `mainfx` model estimates that if we have two subjects who have the same depression diagnosis status at the start of the period, but live in neighborhoods with different `ed_start` values (one High and one Low), then **on average** the subject living in the Low education neighborhood will have a BMI that is 1.56 $kg/m^2$ higher than the other subject.
+
+## Interpret the intercept term?
+
+```{r}
+#| echo: true
+model_parameters(mainfx, ci = 0.90)
+```
+
+> -   32.98 is the intercept. It's the `mainfx` model's estimate of the mean of `bmi_end` across all subjects where both `dep_start` is 0 and `ed_start` = High.
+
+## ANOVA table for main effects model
+
+```{r}
+#| echo: true
+anova(mainfx)
+```
+
+### % of Total SS explained by the two factors?
+
+-   Total SS = 1303 + 280 + 35113 = 36696
+-   So % explained = (1303 + 280) / 36696 = 0.043, or 4.3%
+
+## Model `mainfx` and its assumptions
+
+-   `mainfx` is a "main effects only" model. It assumes there is zero interaction between `dep_start` and `ed_start` in predicting our outcome, `bmi_end`.
+-   Like any ANOVA model, `mainfx` makes the usual linear model assumptions (linearity, constant variance, Normality)
+    -   Focus: posterior predictive check, and Normal Q-Q plot of residuals[^1].
+
+[^1]: The assessment of linearity and non-constant variance used by `check_model()` are best used when we have at least one quantitative predictor in our model.
+
+## Checking model `mainfx`
+
+```{r}
+#| echo: true
+set.seed(20241029)
+check_model(mainfx, check = c("pp_check", "qq"), detrend = FALSE)
+```
+
+## Interaction Plot, again
+
+```{r}
+#| echo: false
+
+ggplot(ex1_means, aes(x = dep_start, y = mean_bmi)) +
+  geom_line(aes(group = ed_start, color = ed_start)) +
+  geom_point(aes(color = ed_start)) +
+  scale_color_material() +
+  labs(title = "Example 1 Interaction Plot",
+       subtitle = "Do we see substantially non-parallel lines?",
+       y = "Mean BMI at end of period", 
+       x = "Depression Diagnosis (1 = yes, 0 = no)", 
+       color = "HS Graduation Rate")
+```
+
+## Two-Way ANOVA with Interaction
+
+Fit the linear model, including an interaction (`*`) between our factors.
+
+```{r}
+#| echo: true
+
+withint <- lm(bmi_end ~ dep_start * ed_start, data = dm18)
+
+withint
+```
+
+## What is the `withint` model equation?
+
+$$
+bmi_{end} = 33.4 + 2.3 (dep_{start} = 1) \\
++ 0.7 (ed_{start} = Low) \\ + 2.2 (dep_{start} = 1) \times (ed_{start} = Low)
+$$
+
+`dep_start` | `ed_start` | Estimated `bmi_end`
+:---------: | :--------: | -------------:
+0 | High | 33.4  
+0 | Low | 33.4 + 0.7 = 34.1
+1 | High | 33.4 + 2.3 = 35.7
+1 | Low | 33.4 + 2.3 + 0.7 + 2.2 = 38.6
+
+## Effect of High vs. Low `ed_start`?
+
+Est. `bmi_end` | `ed_start` = High | `ed_start` = Low
+:---------: | :--------: | :----------:
+`dep_start` = 0 | 33.4 | 34.1  
+`dep_start` = 1 | 35.7 | 38.6
+
+- If `dep_start` = 0, High `ed_start` yields 33.4, and Low yields 34.1, so the High - Low difference in estimates is -0.7.
+- If `dep_start` = 1, High `ed_start` yields 35.7, and Low yields 38.6, so the High - Low difference in estimates is -2.9.
+- Estimated effect of `ed_start` **depends** on `dep_start`.
+
+## Effect of `dep_start` = 1 vs. 0?
+
+Est. `bmi_end` | `ed_start` = High | `ed_start` = Low
+:---------: | :--------: | :----------:
+`dep_start` = 1 | 35.7 | 38.6
+`dep_start` = 0 | 33.4 | 34.1  
+
+- If `ed_start` is High, then `dep_start` = 1 yields 35.7, and 0 yields 33.4, so the difference in estimated `bmi_end` is 2.3.
+- If `ed_start` is High, then `dep_start` = 1 yields 38.6, and 0 yields 34.1, so the difference in estimated `bmi_end` is 4.5.
+- Estimated effect of `dep_start` **depends** on `ed_start`.
+
+## ANOVA table for `withint` model
+
+```{r}
+anova(withint)
+```
+
+- Total SS = 1303 + 280 + 133 + 34979 = 36696
+- % explained = (1303 + 280 + 133) / 36696 = 0.047, or 4.7%
+- Is this a big improvement over the `mainfx` model?
+
+## Checking model `withint`
+
+```{r}
+#| echo: true
+set.seed(202410291)
+check_model(withint, check = c("pp_check", "qq"), detrend = FALSE)
+```
+
+## Compare peformance of our two models?
+
+```{r}
+#| echo: true
+
+compare_performance(mainfx, withint, rank = TRUE)
+```
+
+## Plot to compare performance indicators
+
+```{r}
+#| echo: true
+plot(compare_performance(mainfx, withint))
+```
+
+## Do we have a substantial interaction?
+
+- Interaction plot shows slightly non-parallel lines.
+- % of variation explained by the interaction term is about 0.4% of the variation in `bmi_end`, overall.
+- p value for the interaction term is pretty large ($p$ = 0.19)
+- Is there a substantial improvement in the fit with the interaction?
+    - In-sample performance indices are split.
+
+What do you think?
+
+# Two-Factor Analysis of Variance: Example 2
+
+## Example 2
+
+Suppose that we now want to understand the impact on BMI at the end of the period, of:
+
+- `insur_start` (Medicare, Commercial or Medicaid), and
+- `ed_start` (Low or High)
+
+and it's possible that the impact of insurance on BMI may depend on the home neighborhood's educational attainment, and vice versa (i.e. insurance and education may **interact**.)
+
+## Build an interaction plot
+
+Calculate and store group means.
+
+```{r}
+#| echo: true
+ex2_means <- dm18 |>
+  group_by(insur_start, ed_start) |>
+  summarize(mean_bmi = mean(bmi_end))
+
+ex2_means
+```
+
+## How strong is the interaction?
+
+Now, we'll plot these means, and look for a substantial interaction (non-parallel lines.)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(ex2_means, aes(x = insur_start, y = mean_bmi)) +
+  geom_line(aes(group = ed_start, color = ed_start)) +
+  geom_point(aes(color = ed_start)) +
+  scale_color_material() +
+  labs(title = "Example 2 Interaction Plot",
+       subtitle = "Do we see substantially non-parallel lines?",
+       y = "Mean BMI at end of period", 
+       x = "Insurance at start of period", 
+       color = "HS Graduation Rate")
+```
+
+## Example 2: Two-Way ANOVA models 
+
+```{r}
+#| echo: true
+
+mainfx2 <- lm(bmi_end ~ insur_start + ed_start, data = dm18)
+withint2 <- lm(bmi_end ~ insur_start * ed_start, data = dm18)
+
+compare_performance(mainfx2, withint2, rank = TRUE)
+```
+
+## Plotting Performance Indices
+
+```{r}
+#| echo: true
+
+plot(compare_performance(mainfx2, withint2))
+```
+
+## Interpret `mainfx2` estimates?
+
+```{r}
+#| echo: true
+model_parameters(mainfx2, ci = 0.90)
+```
+
+$$
+bmi_{end} = 32.9 + 1.4 (Comm.) + 2.4 (Medicaid) + 1.8 (Low Ed.) 
+$$
+
+Est. `bmi_end` | Medicare | Commercial | Medicaid
+------------: | :------: | :------: | :------: 
+`ed_start` High | 32.9 | 34.3 | 35.3 
+`ed_start` Low | 34.7 | 36.1 | 37.1
+
+
+## Specify `withint2` equation?
+
+```{r}
+#| echo: true
+model_parameters(withint2, ci = 0.90)
+```
+
+## `withint2` model equation {.smaller}
+
+$$
+bmi_{end} = 33.6 + 2.3 Commercial + 0.7 Medicaid + 0.5 (ed_{start} = Low) \\ - 1.9 Commercial \times (ed_{start} = Low) + 3.4 Medicaid \times (ed_{start} = Low)
+$$
+
+`insur_start` | `ed_start` | Estimated `bmi_end`
+:---------: | :--------: | -------------:
+Medicare | High | 33.6
+Commercial | High | 33.6 + 2.3 = 35.9
+Medicaid | High | 33.6 + 0.7 = 34.3
+Medicare | Low | 33.6 + 0.5 = 34.1
+Commercial | Low | 33.6 + 2.3 + 0.5 - 1.9 = 34.5
+Medicaid | Low | 33.6 + 0.7 + 0.5 + 3.4 = 38.2
+
+## ANOVA table for main effects model
+
+```{r}
+#| echo: true
+anova(mainfx2)
+```
+
+### % of Total SS explained by the two factors?
+
+-   Total SS = 510 + 369 + 35817 = 36696
+-   So % explained = (510 + 369) / 36696 = 0.024, or 2.4%
+
+## ANOVA table for interaction model
+
+```{r}
+#| echo: true
+anova(withint2)
+```
+
+### % of Total SS explained by the model?
+
+-   Total SS = 510 + 369 + 482 + 35335 = 36696
+-   So % explained = (510 + 369 + 482) / 36696 = 0.037, or 3.7%
+
+## Checking model `mainfx2`
+
+```{r}
+#| echo: true
+set.seed(202410292)
+check_model(mainfx2, check = c("pp_check", "qq"), detrend = FALSE)
+```
+
+## Checking model `withint2`
+
+```{r}
+#| echo: true
+set.seed(202410293)
+check_model(withint2, check = c("pp_check", "qq"), detrend = FALSE)
+```
+
+## Do we have a substantial interaction?
+
+Example 2
+
+- Interaction plot shows substantially non-parallel lines.
+- Interaction term explains about 1.3% of the variation in `bmi_end`, overall.
+- p value for the interaction term is fairly small ($p$ = 0.045)
+- Substantial improvement in the fit with interaction?
+    - 6/7 in-sample performance indices prefer interaction
+
+What do you think?
+
+# Add a covariate?
+
+## What if we added a covariate?
+
+```{r}
+#| echo: true
+dm18a <- dm464 |>
+  mutate(ed_start = factor(ifelse(nedlev_start > 78, "High", "Low")),
+         dep_start = factor(depdiag_start)) |>
+  mutate(bmi_c = center(bmi_start)) |>
+  select(id_code, bmi_end, dep_start, ed_start, insur_start, 
+         bmi_c, bmi_start)
+
+dm18a |> reframe(lovedist(bmi_start))
+dm18a |> reframe(lovedist(bmi_c))
+```
+
+## Analysis of Covariance Model
+
+```{r}
+#| echo: true
+
+fit3 <- lm(bmi_end ~ bmi_c + dep_start * insur_start, data = dm18a)
+
+anova(fit3)
+```
+
+## Proportion of Variation Explained
+
+```{r}
+#| echo: true
+
+eta_squared(fit3)
+```
+
+## Drop Interaction?
+
+```{r}
+#| echo: true
+
+fit4 <- lm(bmi_end ~ bmi_c + dep_start + insur_start, data = dm18a)
+
+anova(fit4)
+```
+
+## Drop Depression?
+
+```{r}
+#| echo: true
+
+fit5 <- lm(bmi_end ~ bmi_c + insur_start, data = dm18a)
+
+anova(fit5)
+```
+
+## Compare fit3, fit4, fit5
+
+```{r}
+compare_performance(fit3, fit4, fit5, rank = TRUE)
+```
+
+## Compare fit3, fit4, fit5
+
+```{r}
+plot(compare_performance(fit3, fit4, fit5))
+```
+
+## Check Model `fit4` (1/3)
+
+```{r}
+#| echo: true
+check_model(fit4, check = c("pp_check", "qq"), detrend = FALSE)
+```
+
+## Check Model `fit4` (2/3)
+
+```{r}
+#| echo: true
+check_model(fit4, check = c("linearity", "homogeneity"))
+```
+
+## Check Model `fit4` (3/3)
+
+```{r}
+#| echo: true
+check_model(fit4, check = c("outliers", "vif"))
+```
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

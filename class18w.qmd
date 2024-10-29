@@ -262,7 +262,7 @@ Est. `bmi_end` | `ed_start` = High | `ed_start` = Low
 `dep_start` = 0 | 33.4 | 34.1  
 
 - If `ed_start` is High, then `dep_start` = 1 yields 35.7, and 0 yields 33.4, so the difference in estimated `bmi_end` is 2.3.
-- If `ed_start` is High, then `dep_start` = 1 yields 38.6, and 0 yields 34.1, so the difference in estimated `bmi_end` is 4.5.
+- If `ed_start` is Low, then `dep_start` = 1 yields 38.6, and 0 yields 34.1, so the difference in estimated `bmi_end` is 4.5.
 - Estimated effect of `dep_start` **depends** on `ed_start`.
 
 ## ANOVA table for `withint` model

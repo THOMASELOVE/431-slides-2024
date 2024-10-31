@@ -1,0 +1,624 @@
+---
+title: "431 Class 19"
+author: Thomas E. Love, Ph.D.
+date: "2024-10-31"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 19 | 2024-10-31 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+1. Exploration and Initial Data Summaries
+2. Dealing with Missing Data (today via Single Imputation)
+3. Partitioning into Training and Testing Samples
+4. How might we transform our outcome? (Box-Cox? Scaling?)
+5. Building Three Candidate Prediction Models 
+    - Assessing coefficients (model parameters)
+    - Obtaining summaries of fit quality (performance)
+6. Comparing some in-sample performance indices.
+    
+## 431 strategy: "most useful" model?
+
+1. Split the data into a development (model training) sample of about 70-80% of the observations, and a holdout (model test) sample, containing the remaining observations.
+2. Develop candidate models using the development sample.
+3. Assess the quality of fit for candidate models within the development sample.
+
+## 431 strategy: "most useful" model?
+
+4. Check adherence to regression assumptions in the development sample.
+5. When you have candidates, assess them based on the accuracy of the predictions they make for the data held out (and thus not used in building the models.) 
+6. Select a "final" model for use based on the evidence in steps 3, 4 and especially 5.
+
+
+## R Packages
+
+```{r}
+#| echo: true
+
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor)
+library(mice)
+library(naniar)
+library(patchwork)
+library(car)
+library(GGally)      ## for ggpairs scatterplot matrix
+library(easystats)
+library(tidyverse)
+
+source("c19/data/Love-431.R")
+
+theme_set(theme_bw())
+```
+
+## Today's Data
+
+The `dm500.Rds` data contains four important variables + Subject ID on 500 adults with diabetes.
+
+We want to predict the subject's current Hemoglobin A1c level (`a1c`), using (up to) three predictors:
+
+- `a1c_old`: subject's Hemoglobin A1c (in %) two years ago
+- `age`: subject's age in years (between 30 and 70)
+- `income`: median income of subject's neighborhood (3 levels)
+
+## What roles will these variables play?
+
+`a1c` is our outcome, which we'll predict using three models ...
+
+1. Model 1: Use `a1c_old` alone to predict `a1c`
+2. Model 2: Use `a1c_old` and `age` together to predict `a1c`
+3. Model 3: Use `a1c_old`, `age`, and `income` together to predict `a1c`
+
+## The `dm500` data
+
+```{r}
+#| echo: true
+dm500 <- readRDS("c19/data/dm500.Rds")
+
+dm500
+```
+
+## More details on missing data
+
+- What do we learn here?
+
+```{r}
+#| echo: true
+miss_var_summary(dm500)
+miss_case_table(dm500)
+```
+
+## Single Imputation
+
+Today, we'll assume all missing values are Missing at Random (MAR) and create 10 imputations but just use the 7th.
+
+```{r}
+#| echo: true
+set.seed(20241031)
+
+dm500_tenimps <- mice(dm500, m = 10, printFlag = FALSE)
+
+dm500_i <- complete(dm500_tenimps, 7) |> tibble()
+
+n_miss(dm500)
+n_miss(dm500_i)
+```
+
+- Later, we'll return and use all 10 imputations.
+
+## Summarizing the `dm500_i` tibble
+
+```{r}
+#| echo: true
+data_codebook(dm500_i |> select(-subject))
+```
+
+## Three candidate models for `a1c`
+
+Our goal is accurate prediction of `a1c` values. Suppose we have decided to consider these three possible models...
+
+1. Model 1: Use `a1c_old` alone to predict `a1c`
+2. Model 2: Use `a1c_old` and `age` together to predict `a1c`
+3. Model 3: Use `a1c_old`, `age`, and `income` together to predict `a1c`
+
+## How shall we be guided by our data?
+
+> It can scarcely be denied that the supreme goal of all theory is to make the irreducible basic elements as simple and as few as possible without having to surrender the adequate representation of a single datum of experience. (A. Einstein)
+
+- Often, this is reduced to "make everything as simple as possible but no simpler"
+
+## How shall we be guided by our data?
+
+> Entities should not be multiplied without necessity. (Occam's razor)
+
+- Often, this is reduced to "the simplest solution is most likely the right one"
+
+## George Box's aphorisms
+
+> On Parsimony: Since all models are wrong the scientist cannot obtain a "correct" one by excessive elaboration. On the contrary following William of Occam he should seek an economical description of natural phenomena. Just as the ability to devise simple but evocative models is the signature of the great scientist so overelaboration and overparameterization is often the mark of mediocrity.
+
+## George Box's aphorisms
+
+> On Worrying Selectively: Since all models are wrong the scientist must be alert to what is importantly wrong. It is inappropriate to be concerned about mice when there are tigers abroad.
+
+- and, the most familiar version...
+
+> ... all models are approximations. Essentially, all models are wrong, but some are useful. However, the approximate nature of the model must always be borne in mind.
+
+# Partition the data: Training and Test Samples
+
+## Partitioning the Data
+
+- Select a random sample (without replacement) of 70% of `dm500_i` (60-80% is common) for model training. 
+- Hold out the other 30% for model testing, using `anti_join()` to pull subjects not in `dm500_i_train`.
+
+```{r}
+#| echo: true
+set.seed(4312024)
+
+dm500_i_train <- dm500_i |> 
+  slice_sample(prop = 0.7, replace = FALSE)
+dm500_i_test <- 
+  anti_join(dm500_i, dm500_i_train, by = "subject")
+
+c(nrow(dm500_i_train), nrow(dm500_i_test), nrow(dm500_i))
+```
+
+## Describing the join options
+
+from [Posit's Data Transformation Cheat Sheet](https://rstudio.github.io/cheatsheets/html/data-transformation.html)
+
+“Mutating Joins” join one table to columns from another, matching values with the rows that the correspond to. Each join retains a different combination of values from the tables.
+
+- `left_join(x, y)`: Join matching values from y to x.
+- `right_join(x, y)`: Join matching values from x to y.
+- `inner_join(x, y)`: Join data. retain only rows with matches.
+- `full_join(x, y)`: Join data. Retain all values, all rows.
+
+---
+
+![](c19/images/joins.png)
+
+## Describing the join options
+
+from [Posit's Data Transformation Cheat Sheet](https://rstudio.github.io/cheatsheets/html/data-transformation.html)
+
+"Filtering Joins" filter one table against the rows of another.
+
+- `semi_join(x, y)`: Return rows of x that have a match in y. Use to see what will be included in a join.
+- `anti_join(x, y)`: Return rows of x that do not have a match in y. Use to see what will not be included in a join.
+
+Use `by = join_by(col1, col2, ...)` to specify one or more common columns to match on.
+
+- For more, see [the Joins chapter in R4DS](https://r4ds.hadley.nz/joins)
+
+# Consider transforming the outcome.
+
+## Distribution of `a1c` (outcome)
+
+```{r}
+#| echo: true
+#| output-location: slide
+p1 <- ggplot(dm500_i_train, aes(x = a1c)) +
+  geom_histogram(binwidth = 0.5, 
+                 fill = "slateblue", col = "white")
+
+p2 <- ggplot(dm500_i_train, aes(sample = a1c)) + 
+  geom_qq(col = "slateblue") + geom_qq_line(col = "violetred") +
+  labs(y = "Observed a1c", x = "Normal (0,1) quantiles") + 
+  theme(aspect.ratio = 1)
+
+p3 <- ggplot(dm500_i_train, aes(x = "", y = a1c)) +
+  geom_violin(fill = "slateblue", alpha = 0.1) + 
+  geom_boxplot(fill = "slateblue", width = 0.3, notch = TRUE,
+               outlier.color = "slateblue", outlier.size = 3) +
+  labs(x = "") + coord_flip()
+
+p1 + p2 - p3 +
+  plot_layout(ncol = 1, height = c(3, 2)) + 
+  plot_annotation(title = "Hemoglobin A1c values (%)",
+         subtitle = str_glue("Model Development Sample: ", nrow(dm500_i_train), 
+                           " adults with diabetes"))
+```
+
+
+## Transform the Outcome?
+
+We want to try to identify a good transformation for the conditional distribution of the outcome, given the predictors, in an attempt to make the linear regression assumptions of linearity, Normality and constant variance more appropriate.
+
+### (partial) Ladder of Power Transformations 
+
+Transformation | $y^2$ | y | $\sqrt{y}$ | log(y) | $1/y$ | $1/y^2$
+-------------: | ---: | ---: | ---: | ---: | ---: | ---: 
+$\lambda$       | 2 | 1 | 0.5 | 0 | -1 | -2
+
+## Consider a log transformation?
+
+```{r}
+#| echo: true
+#| output-location: slide
+p1 <- ggplot(dm500_i_train, aes(x = log(a1c))) +
+  geom_histogram(bins = 15, 
+                 fill = "royalblue", col = "white")
+
+p2 <- ggplot(dm500_i_train, aes(sample = log(a1c))) + 
+  geom_qq(col = "royalblue") + geom_qq_line(col = "magenta") +
+  labs(y = "Observed log(a1c)", x = "Normal (0,1) quantiles") + 
+  theme(aspect.ratio = 1)
+  
+
+p3 <- ggplot(dm500_i_train, aes(x = "", y = log(a1c))) +
+  geom_violin(fill = "royalblue", alpha = 0.1) + 
+  geom_boxplot(fill = "royalblue", width = 0.3, notch = TRUE,
+               outlier.color = "royalblue", outlier.size = 3) +
+  labs(x = "", y = "Natural log of Hemoglobin A1c") + coord_flip()
+
+p1 + p2 - p3 +
+  plot_layout(ncol = 1, height = c(3, 2)) + 
+  plot_annotation(title = "Natural Logarithm of Hemoglobin A1c",
+         subtitle = str_glue("Model Development Sample: ", nrow(dm500_i_train), 
+                           " adults with diabetes"))
+```
+
+## Box-Cox to get started?
+
+```{r}
+#| echo: true
+mod_0 <- lm(a1c ~ a1c_old + age + income, 
+            data = dm500_i_train)
+boxCox(mod_0) ## from car package
+```
+
+## Could Box-Cox be helpful?
+
+```{r}
+#| echo: true
+summary(powerTransform(mod_0)) ## also from car package
+```
+
+## Consider the inverse?
+
+```{r}
+#| echo: true
+#| output-location: slide
+p1 <- ggplot(dm500_i_train, aes(x = (1/a1c))) +
+  geom_histogram(bins = 15, 
+                 fill = "forestgreen", col = "white")
+
+p2 <- ggplot(dm500_i_train, aes(sample = (1/a1c))) + 
+  geom_qq(col = "forestgreen") + geom_qq_line(col = "tomato") +
+  labs(y = "Observed 1/a1c", x = "Normal (0,1) quantiles") + 
+  theme(aspect.ratio = 1)
+
+p3 <- ggplot(dm500_i_train, aes(x = "", y = (1/a1c))) +
+  geom_violin(fill = "forestgreen", alpha = 0.1) + 
+  geom_boxplot(fill = "forestgreen", width = 0.3, notch = TRUE,
+               outlier.color = "forestgreen", outlier.size = 3) +
+  labs(x = "", y = "1/Hemoglobin A1c") + coord_flip()
+
+p1 + p2 - p3 +
+  plot_layout(ncol = 1, height = c(3, 2)) + 
+  plot_annotation(title = "Inverse of Hemoglobin A1c",
+         subtitle = str_glue("Model Development Sample: ", nrow(dm500_i_train), 
+                           " adults with diabetes"))
+```
+
+## Scale the inverse A1c?
+
+```{r}
+#| echo: true
+
+dm500_i_train |> reframe(lovedist(1/a1c))
+
+dm500_i_train |> reframe(lovedist(100/a1c))
+```
+
+- If we use 1/A1c as our outcome, we'll have some very small regression coefficients. 
+- Multiplying by 100 to get 100/A1c yields a new outcome with values between 5.99 and 23.3 instead of 0.0599 and 0.233.
+
+## Correlation Matrix
+
+```{r}
+#| echo: true
+#| message: true
+temp <- dm500_i_train |> 
+  mutate(inv_a1c = 100/a1c) |>
+  select(a1c_old, age, income, inv_a1c)
+
+correlation(temp)
+```
+
+## Scatterplot Matrix 
+
+- I select the outcome last. Then, the bottom row will show the most important scatterplots, with the outcome on the Y axis, and each predictor, in turn on the X.
+- `ggpairs()` comes from the `GGally` package.
+
+```{r}
+#| echo: true
+#| output-location: slide
+temp <- dm500_i_train |> 
+  mutate(inv_a1c = 100/a1c) |>
+  select(a1c_old, age, income, inv_a1c)
+
+ggpairs(temp, 
+    title = "Scatterplots: Model Development Sample",
+    lower = list(combo = wrap("facethist", bins = 10)))
+```
+
+## Three Regression Models We'll Fit
+
+- We continue to use the model training sample, and work with the (100/a1c) transformation.
+
+```{r}
+#| echo: true
+fit1 <- lm((100/a1c) ~ a1c_old, data = dm500_i_train)
+
+fit2 <- lm((100/a1c) ~ a1c_old + age, data = dm500_i_train)
+
+fit3 <- lm((100/a1c) ~ a1c_old + age + income, 
+            data = dm500_i_train)
+
+c(n_obs(fit1), n_obs(fit2), n_obs(fit3))
+```
+
+- `n_obs()` gives us the number of observations used to fit the model. It comes from the `insight` package in `easystats`.
+
+# Assess fit of candidate models in training sample.
+
+## Estimated coefficients (`fit1`)
+
+```{r}
+#| echo: true
+model_parameters(fit1, ci = 0.95)
+```
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+- Code: `$$\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}$$`
+
+## Interpreting the `fit1` equation (1/6)
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+- Interpret the Intercept?
+
+>- Our `fit1` model estimates the value of (100/A1c) to be 20.97 if `A1c_old` = 0, but we have no values of `A1c_old` anywhere near 0 in our data^[Range of `A1c_old` was 4.2 to 16.3 percentage points.], nor is such a value plausible clinically, so the intercept doesn't tell us much here.
+
+## Interpreting the `fit1` equation (2/6)
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+Our `fit1` model estimates the slope of `A1c_old` to be -0.98, with 95% CI (-1.12, -0.85). Interpret the point estimate...
+
+>- Suppose Harry has an `A1c_old` value that is one percentage point (A1c is measured in percentage points) higher than Sally's. Our `fit1` model predicts the `100/A1c` value for Harry to be 0.98 less than that of Sally, on average.
+
+## Interpreting the `fit1` equation (3/6)
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+Our `fit1` model estimates the slope of `A1c_old` to be -0.98, with 95% CI (-1.12, -0.85). What can we say about the CI?
+
+- The confidence interval reflects imprecision in the population estimate, based only on assuming that the participants are selected at random from the population of interest.
+
+## Interpreting the `fit1` equation (4/6)
+
+Slope of `A1c_old` in `fit1` is -0.98, with 95% CI (-1.12, -0.85). 
+
+- Model `fit1` estimates a slope of -0.98 in study participants. 
+- When we generalize beyond study participants to the population they were selected at random from, then our data are **compatible** (at the 95% confidence level) with population slopes between -1.12 and -0.85, depending on the assumptions of our linear model `fit1` being correct.
+
+## Interpreting the `fit1` equation (5/6)
+
+- Practically, is our data a random sample of anything?
+
+Slope of `A1c_old` in `fit1` is -0.98, with 95% CI (-1.12, -0.85). 
+
+- Our 95% confidence interval suggests that our data appear compatible with population slope values for `A1c_old` between -1.12 and -0.85, assuming the participants are **representative** of the population of interest, **and** assuming the underlying linear model `fit1` is correct.
+
+## Interpreting the `fit1` equation (6/6)
+
+- Can we say "There is 95% probability that the population slope lies between ..."?
+
+To find such a probability interval, we'd need to **combine** our confidence interval (giving compatibility of data with population slope values) with **meaningful prior information**^[perhaps via a Bayesian model with an informative (not just weakly informative) prior.] on which values for the population mean are plausible.
+
+- For more, see [this article by Hilary Watt](https://academic.oup.com/ije/article/49/6/2083/5876177) 2020 Int J Epidemiology (<https://doi.org/10.1093/ije/dyaa080>)
+
+## Summarize Fit Quality (`fit1`)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+```
+
+- Adjusted $R^2$ = $1 - (1 - R^2) \times \frac{n-1}{n-p-1}$, where $p$ = number of predictors in the model, and $n$ = number of observations.
+    - Adjusted $R^2$ is no longer a percentage of anything, just an index. Higher values, though, still indicate stronger fits.
+- RMSE/Sigma = Residual Standard Error -> smaller values = better fit
+
+## Summarize Fit Quality (`fit1`)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+```
+
+- AIC = Akaike vs. BIC = Bayesian Information Criterion -> also smaller values = better fit
+    - As we'll see, the `compare_performance()` function weights AIC and BIC measures so that higher values indicate a better fit.
+    - Without the weights, we look for lower AIC and BIC.
+    
+## Estimated coefficients (`fit2`)
+
+```{r}
+#| echo: true
+model_parameters(fit2)
+```
+
+$$
+\hat{\frac{100}{A1c}} = 19.42 - 0.96 \mbox{ A1c_old} + 0.02 \mbox{ Age}
+$$
+
+>- Suppose Harry is one year older than Sally and they have the same `A1c_old`. On average, our `fit2` model predicts Harry's `100/A1c` value to be 0.02 higher than Sally's.
+
+## Summarize Fit Quality (`fit2`)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+model_performance(fit2)
+```
+
+>- `fit2` has higher $R^2$, higher adjusted $R^2$, lower RMSE, lower Sigma, lower values of AIC and corrected AIC.
+>- `fit1` has a lower value of BIC.
+
+## Compare Fit Quality (fit1 vs. fit2)
+
+Remember `compare_performance()` weights AIC and BIC so higher values indicate better fit.
+
+```{r}
+#| echo: TRUE
+
+compare_performance(fit1, fit2, rank = TRUE) 
+```
+
+- `fit2` has higher $R^2$, higher adjusted $R^2$, lower RMSE, lower Sigma, higher (weighted) AIC and (weighted) AIC corrected
+- `fit1` has higher (weighted) BIC.
+
+## `fit1` vs. `fit2` performance
+
+```{r}
+#| echo: TRUE
+
+plot(compare_performance(fit1, fit2))
+```
+
+## Estimated coefficients (`fit3`)
+
+```{r}
+#| echo: true
+model_parameters(fit3)
+```
+
+$$
+\hat{\frac{100}{A1c}} = 19.49 - 0.95 \mbox{ A1c_old} + 0.02 \mbox{ Age} \\ + 0.05 \mbox{(Inc 30-50)} - 0.21 \mbox{(Inc<30)}
+$$
+
+## Interpreting the slopes
+
+$$
+\hat{\frac{100}{A1c}} = 19.49 - 0.95 \mbox{ A1c_old} + 0.02 \mbox{ Age} \\ + 0.05 \mbox{(Inc 30-50)} - 0.21 \mbox{(Inc<30)}
+$$
+
+>- Suppose Harry and Sally are the same age and have the same `A1c_old`, but Harry lives in a neighborhood with income < $30K, while Sally lives in a neighborhood with income > $50K. On average, our `fit3` model predicts Harry's `100/A1c` value to be 0.21 lower than Sally's.
+
+
+## Summarize Fit Quality (All 3 models)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+model_performance(fit2)
+model_performance(fit3)
+```
+
+## Compare Fit Quality (3 models)
+
+Remember `compare_performance()` weights AIC and BIC so higher values indicate better fit.
+
+```{r}
+#| echo: TRUE
+
+compare_performance(fit1, fit2, fit3, rank = TRUE)
+```
+
+## Which Model Looks Best? (1/4)
+
+Model | $R^2$ | Adjusted $R^2$ | Predictors
+------ | ----- | --------- | -------------
+`fit1` | 0.371 | 0.370 | a1c_old
+`fit2` | 0.377 | 0.374 | a1c_old, age
+`fit3` | 0.379 | 0.372 | a1c_old, age, income
+
+- By $R^2$, the largest model (`fit3`) always looks best (raw $R^2$ is greedy)
+- Adjusted $R^2$ penalizes for lack of parsimony. `fit2` looks best.
+
+## More Performance Indices (2/4)
+
+Model | RMSE | Sigma | Predictors
+------ | ----- | --------- | -------------
+`fit1` | 2.303 | 2.309 | a1c_old
+`fit2` | 2.292 | 2.302 | a1c_old, age
+`fit3` | 2.289 | 2.306 | a1c_old, age, income
+
+- For $\sigma$ and RMSE, smaller values, indicate better fits.
+  - `fit3` looks best by RMSE.
+  - `fit2` looks best by Sigma ($\sigma$).
+
+## Still More Performance Indices (3/4)
+
+Unweighted versions, from `model_performance()`...
+
+Model | AIC | AIC_c | BIC | Predictors
+------ | ----- | ----- | --------- | -------------
+`fit1` | 1583.106 | 1583.176 | 1594.680 | a1c_old
+`fit2` | 1581.884 | 1582.000 | 1597.316 | + age
+`fit3` | 1584.938 | 1585.183 | 1608.086 | + income
+
+- For unweighted AIC (both types) and BIC, smaller values (more negative, if relevant) indicate better fits.
+  - `fit2` looks best by AIC and corrected AIC.
+  - `fit1` looks best by BIC.
+
+## Weighted Performance Indices (4/4)
+
+**WEIGHTED** versions, from `compare_performance()`...
+
+Model | AIC (wtd) | AIC_c (wtd) | BIC (wtd) | Predictors
+------ | ----- | ----- | --------- | -------------
+`fit1` | 0.308 | 0.316 | 0.788  | a1c_old
+`fit2` | 0.568 | 0.568 | 0.211 | + age
+`fit3` | 0.123 | 0.116 | 9.7e-04 | + income
+
+- After weighting of AIC (both types) and BIC, larger values indicate better fits.
+  - `fit2` looks best by AIC and corrected AIC.
+  - `fit1` looks best by BIC.
+
+## Performance Indices for 3 Models
+
+```{r}
+#| echo: TRUE
+
+plot(compare_performance(fit1, fit2, fit3))
+```
+
+## Coming Soon
+
+7. Checking model assumptions with `check_model()` in the training sample
+8. Assessing the candidate models more thoroughly, in both the training and test samples
+    - MAPE, RMSPE, Maximum Prediction Error, Validated $R^2$
+9. Considering Bayesian alternative fits with weakly informative priors
+10. Incorporating multiple imputation in building a final model
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

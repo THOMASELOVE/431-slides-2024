@@ -1,0 +1,937 @@
+---
+title: "431 Class 20"
+author: Thomas E. Love, Ph.D.
+date: "2024-11-07"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 20 | 2024-11-07 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+1. Reviewing What We Did Last Week
+2. Building Three Candidate Prediction Models 
+    - Assessing coefficients (model parameters)
+    - Obtaining summaries of fit quality (performance)
+3. Comparing some in-sample performance indices.
+4. Checking model assumptions with `check_model()` in the training sample
+  - Thinking more deeply about predictions and residuals
+  - Collinearity (correlated predictors)
+
+## 431 strategy: "most useful" model?
+
+1. Split the data into a development (model training) sample of about 70-80% of the observations, and a holdout (model test) sample, containing the remaining observations.
+2. Develop candidate models using the development sample.
+3. Assess the quality of fit for candidate models within the development sample.
+
+## 431 strategy: "most useful" model?
+
+4. Check adherence to regression assumptions in the development sample.
+5. When you have candidates, assess them based on the accuracy of the predictions they make for the data held out (and thus not used in building the models.) 
+6. Select a "final" model for use based on the evidence in steps 3, 4 and especially 5.
+
+## R Packages
+
+```{r}
+#| echo: true
+
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor)
+library(mice)
+library(naniar)
+library(patchwork)
+library(car)         ## for vif function as well as Box-Cox
+library(GGally)      ## for ggpairs scatterplot matrix
+library(broom)       ## for predictions, residuals with augment
+library(easystats)
+library(tidyverse)
+
+source("c20/data/Love-431.R")
+
+theme_set(theme_bw())
+```
+
+## Today's Data
+
+The `dm500.Rds` data contains four important variables + Subject ID on 500 adults with diabetes.
+
+We want to predict the subject's current Hemoglobin A1c level (`a1c`), using (up to) three predictors:
+
+- `a1c_old`: subject's Hemoglobin A1c (in %) two years ago
+- `age`: subject's age in years (between 30 and 70)
+- `income`: median income of subject's neighborhood (3 levels)
+
+## What roles will these variables play?
+
+`a1c` is our outcome, which we'll predict using three models ...
+
+1. Model 1: Use `a1c_old` alone to predict `a1c`
+2. Model 2: Use `a1c_old` and `age` together to predict `a1c`
+3. Model 3: Use `a1c_old`, `age`, and `income` together to predict `a1c`
+
+## The `dm500` data
+
+```{r}
+#| echo: true
+dm500 <- readRDS("c19/data/dm500.Rds")
+
+dm500
+```
+
+## Single Imputation
+
+Today, we'll assume all missing values are Missing at Random (MAR) and create 10 imputations but just use the 7th.
+
+```{r}
+#| echo: true
+set.seed(20241031)
+
+dm500_tenimps <- mice(dm500, m = 10, printFlag = FALSE)
+
+dm500_i <- complete(dm500_tenimps, 7) |> tibble()
+
+n_miss(dm500)
+n_miss(dm500_i)
+```
+
+- Later, we'll return and use all 10 imputations.
+
+## Partitioning the Data
+
+- Select a random sample (without replacement) of 70% of `dm500_i` (60-80% is common) for model training. 
+- Hold out the other 30% for model testing, using `anti_join()` to pull subjects not in `dm500_i_train`.
+
+```{r}
+#| echo: true
+set.seed(4312024)
+
+dm500_i_train <- dm500_i |> 
+  slice_sample(prop = 0.7, replace = FALSE)
+dm500_i_test <- 
+  anti_join(dm500_i, dm500_i_train, by = "subject")
+
+c(nrow(dm500_i_train), nrow(dm500_i_test), nrow(dm500_i))
+```
+
+## Three Regression Models We'll Fit
+
+- We continue to use the model training sample, and work with the (100/a1c) transformation.
+
+```{r}
+#| echo: true
+fit1 <- lm((100/a1c) ~ a1c_old, data = dm500_i_train)
+
+fit2 <- lm((100/a1c) ~ a1c_old + age, data = dm500_i_train)
+
+fit3 <- lm((100/a1c) ~ a1c_old + age + income, 
+            data = dm500_i_train)
+
+c(n_obs(fit1), n_obs(fit2), n_obs(fit3))
+```
+
+- `n_obs()` gives us the number of observations used to fit the model. It comes from the `insight` package in `easystats`.
+
+# Assess fit of candidate models in training sample.
+
+## Estimated coefficients (`fit1`)
+
+```{r}
+#| echo: true
+model_parameters(fit1, ci = 0.95)
+```
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+- Code: `$$\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}$$`
+
+## Interpreting the `fit1` equation (1/6)
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+- Interpret the Intercept?
+
+>- Our `fit1` model estimates the value of (100/A1c) to be 20.97 if `A1c_old` = 0, but we have no values of `A1c_old` anywhere near 0 in our data^[Range of `A1c_old` was 4.2 to 16.3 percentage points.], nor is such a value plausible clinically, so the intercept doesn't tell us much here.
+
+## Interpreting the `fit1` equation (2/6)
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+Our `fit1` model estimates the slope of `A1c_old` to be -0.98, with 95% CI (-1.12, -0.85). Interpret the point estimate...
+
+>- Suppose Harry has an `A1c_old` value that is one percentage point (A1c is measured in percentage points) higher than Sally's. Our `fit1` model predicts the `100/A1c` value for Harry to be 0.98 less than that of Sally, on average.
+
+## Interpreting the `fit1` equation (3/6)
+
+$$
+\hat{\frac{100}{A1c}} = 20.97 - 0.98 \mbox{ A1c_old}
+$$
+
+Our `fit1` model estimates the slope of `A1c_old` to be -0.98, with 95% CI (-1.12, -0.85). What can we say about the CI?
+
+- The confidence interval reflects imprecision in the population estimate, based only on assuming that the participants are selected at random from the population of interest.
+
+## Interpreting the `fit1` equation (4/6)
+
+Slope of `A1c_old` in `fit1` is -0.98, with 95% CI (-1.12, -0.85). 
+
+- Model `fit1` estimates a slope of -0.98 in study participants. 
+- When we generalize beyond study participants to the population they were selected at random from, then our data are **compatible** (at the 95% confidence level) with population slopes between -1.12 and -0.85, depending on the assumptions of our linear model `fit1` being correct.
+
+## Interpreting the `fit1` equation (5/6)
+
+- Practically, is our data a random sample of anything?
+
+Slope of `A1c_old` in `fit1` is -0.98, with 95% CI (-1.12, -0.85). 
+
+- Our 95% confidence interval suggests that our data appear compatible with population slope values for `A1c_old` between -1.12 and -0.85, assuming the participants are **representative** of the population of interest, **and** assuming the underlying linear model `fit1` is correct.
+
+## Interpreting the `fit1` equation (6/6)
+
+- Can we say "There is 95% probability that the population slope lies between ..."?
+
+To find such a probability interval, we'd need to **combine** our confidence interval (giving compatibility of data with population slope values) with **meaningful prior information**^[perhaps via a Bayesian model with an informative (not just weakly informative) prior.] on which values for the population mean are plausible.
+
+- For more, see [this article by Hilary Watt](https://academic.oup.com/ije/article/49/6/2083/5876177) 2020 Int J Epidemiology (<https://doi.org/10.1093/ije/dyaa080>)
+
+## Summarize Fit Quality (`fit1`)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+```
+
+- Adjusted $R^2$ = $1 - (1 - R^2) \times \frac{n-1}{n-p-1}$, where $p$ = number of predictors in the model, and $n$ = number of observations.
+    - Adjusted $R^2$ is no longer a percentage of anything, just an index. Higher values, though, still indicate stronger fits.
+- RMSE/Sigma = Residual Standard Error -> smaller values = better fit
+
+## Summarize Fit Quality (`fit1`)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+```
+
+- AIC = Akaike vs. BIC = Bayesian Information Criterion -> also smaller values = better fit
+    - As we'll see, the `compare_performance()` function weights AIC and BIC measures so that higher values indicate a better fit.
+    - Without the weights, we look for lower AIC and BIC.
+    
+## Estimated coefficients (`fit2`)
+
+```{r}
+#| echo: true
+model_parameters(fit2)
+```
+
+$$
+\hat{\frac{100}{A1c}} = 19.42 - 0.96 \mbox{ A1c_old} + 0.02 \mbox{ Age}
+$$
+
+>- Suppose Harry is one year older than Sally and they have the same `A1c_old`. On average, our `fit2` model predicts Harry's `100/A1c` value to be 0.02 higher than Sally's.
+
+## Summarize Fit Quality (`fit2`)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+model_performance(fit2)
+```
+
+>- `fit2` has higher $R^2$, higher adjusted $R^2$, lower RMSE, lower Sigma, lower values of AIC and corrected AIC.
+>- `fit1` has a lower value of BIC.
+
+## Compare Fit Quality (fit1 vs. fit2)
+
+Remember `compare_performance()` weights AIC and BIC so higher values indicate better fit.
+
+```{r}
+#| echo: TRUE
+
+compare_performance(fit1, fit2, rank = TRUE) 
+```
+
+- `fit2` has higher $R^2$, higher adjusted $R^2$, lower RMSE, lower Sigma, higher (weighted) AIC and (weighted) AIC corrected
+- `fit1` has higher (weighted) BIC.
+
+## `fit1` vs. `fit2` performance
+
+```{r}
+#| echo: TRUE
+
+plot(compare_performance(fit1, fit2))
+```
+
+## Estimated coefficients (`fit3`)
+
+```{r}
+#| echo: true
+model_parameters(fit3)
+```
+
+$$
+\hat{\frac{100}{A1c}} = 19.49 - 0.95 \mbox{ A1c_old} + 0.02 \mbox{ Age} \\ + 0.05 \mbox{(Inc 30-50)} - 0.21 \mbox{(Inc<30)}
+$$
+
+## Interpreting the slopes
+
+$$
+\hat{\frac{100}{A1c}} = 19.49 - 0.95 \mbox{ A1c_old} + 0.02 \mbox{ Age} \\ + 0.05 \mbox{(Inc 30-50)} - 0.21 \mbox{(Inc<30)}
+$$
+
+>- Suppose Harry and Sally are the same age and have the same `A1c_old`, but Harry lives in a neighborhood with income < $30K, while Sally lives in a neighborhood with income > $50K. On average, our `fit3` model predicts Harry's `100/A1c` value to be 0.21 lower than Sally's.
+
+
+## Summarize Fit Quality (All 3 models)
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+model_performance(fit2)
+model_performance(fit3)
+```
+
+## Compare Fit Quality (3 models)
+
+Remember `compare_performance()` weights AIC and BIC so higher values indicate better fit.
+
+```{r}
+#| echo: TRUE
+
+compare_performance(fit1, fit2, fit3, rank = TRUE)
+```
+
+## Which Model Looks Best? (1/4)
+
+Model | $R^2$ | Adjusted $R^2$ | Predictors
+------ | ----- | --------- | -------------
+`fit1` | 0.371 | 0.370 | a1c_old
+`fit2` | 0.377 | 0.374 | a1c_old, age
+`fit3` | 0.379 | 0.372 | a1c_old, age, income
+
+- By $R^2$, the largest model (`fit3`) always looks best (raw $R^2$ is greedy)
+- Adjusted $R^2$ penalizes for lack of parsimony. `fit2` looks best.
+
+## More Performance Indices (2/4)
+
+Model | RMSE | Sigma | Predictors
+------ | ----- | --------- | -------------
+`fit1` | 2.303 | 2.309 | a1c_old
+`fit2` | 2.292 | 2.302 | a1c_old, age
+`fit3` | 2.289 | 2.306 | a1c_old, age, income
+
+- For $\sigma$ and RMSE, smaller values, indicate better fits.
+  - `fit3` looks best by RMSE.
+  - `fit2` looks best by Sigma ($\sigma$).
+
+## Still More Performance Indices (3/4)
+
+Unweighted versions, from `model_performance()`...
+
+Model | AIC | AIC_c | BIC | Predictors
+------ | ----- | ----- | --------- | -------------
+`fit1` | 1583.106 | 1583.176 | 1594.680 | a1c_old
+`fit2` | 1581.884 | 1582.000 | 1597.316 | + age
+`fit3` | 1584.938 | 1585.183 | 1608.086 | + income
+
+- For unweighted AIC (both types) and BIC, smaller values (more negative, if relevant) indicate better fits.
+  - `fit2` looks best by AIC and corrected AIC.
+  - `fit1` looks best by BIC.
+
+## Weighted Performance Indices (4/4)
+
+**WEIGHTED** versions, from `compare_performance()`...
+
+Model | AIC (wtd) | AIC_c (wtd) | BIC (wtd) | Predictors
+------ | ----- | ----- | --------- | -------------
+`fit1` | 0.308 | 0.316 | 0.788  | a1c_old
+`fit2` | 0.568 | 0.568 | 0.211 | + age
+`fit3` | 0.123 | 0.116 | 9.7e-04 | + income
+
+- After weighting of AIC (both types) and BIC, larger values indicate better fits.
+  - `fit2` looks best by AIC and corrected AIC.
+  - `fit1` looks best by BIC.
+
+## Performance Indices for 3 Models
+
+```{r}
+#| echo: TRUE
+
+plot(compare_performance(fit1, fit2, fit3))
+```
+
+# Check regression assumptions in training sample.
+
+## Assessing the models with `check_model()`
+
+Three key assumptions we need to think about:
+
+1. Linearity
+2. Constant Variance (Homoscedasticity)
+3. Normality
+
+How do we assess 1, 2, and 3? Residual plots.
+
+## Checking Linearity for `fit1`
+
+```{r}
+#| echo: true
+check_model(fit1, check = "linearity")
+```
+
+## Checking Linearity for `fit2`
+
+```{r}
+#| echo: true
+check_model(fit2, check = "linearity")
+```
+
+## Checking Linearity for `fit3`
+
+```{r}
+#| echo: true
+check_model(fit3, check = "linearity")
+```
+
+## Checking Constant Variance for `fit1`
+
+```{r}
+#| echo: true
+check_model(fit1, check = "homogeneity")
+```
+
+## Checking Constant Variance for `fit2`
+
+```{r}
+#| echo: true
+check_model(fit2, check = "homogeneity")
+```
+
+## Checking Constant Variance for `fit3`
+
+```{r}
+#| echo: true
+check_model(fit3, check = "homogeneity")
+```
+
+## Influential Observations in `fit1`?
+
+```{r}
+#| echo: true
+check_model(fit1, check = "outliers")
+```
+
+## Looking at row 214?
+
+```{r}
+#| echo: true
+dm500_i_train |> slice(214)
+```
+
+## `augment` adds fits, residuals, etc.
+
+from the `broom` package...
+
+```{r}
+#| echo: true
+
+aug1 <- augment(fit1, data = dm500_i_train) |>
+  mutate(inv_a1c = 100/a1c) # add in our model's outcome
+```
+
+`aug1` includes all variables in `dm500_i_train` and also:
+
+- `inv_a1c` = 100/`a1c`, transformed outcome `fit1` predicts
+- `.fitted` = fitted (predicted) values of 1/`a1c`
+- `.resid` = residual (observed - fitted outcome) values; larger residuals (positive or negative) mean poorer fit
+- `.std.resid` = standardized residuals (residuals scaled to SD = 1, remember residual mean is already 0)
+
+## What does `augment` give us?
+
+`aug1` also includes:
+
+- `.hat` statistic = measures *leverage* (larger values of `.hat` indicate unusual combinations of predictor values)
+- `.cooksd` = Cook's distance (or Cook's d), a measure of the subject's *influence* on the model (larger Cook's d values indicate that removing the point will materially change the model's coefficients)
+- plus `.sigma` = estimated $\sigma$ if this point is dropped from the model
+
+## `augment` results: last 6 subjects
+
+```{r}
+#| echo: true
+
+aug1 |> tail() 
+
+aug1 |> tail() |> select(subject, .std.resid, inv_a1c)
+```
+
+## Summarizing our New Measures
+
+for model `fit1`...
+
+```{r}
+#| echo: true
+
+aug1 |> select(inv_a1c, .fitted:.std.resid) |> summary()
+```
+
+
+## `augment` results: row 214
+
+for model `fit1`...
+
+```{r}
+#| echo: true
+
+aug1 |> slice(214)
+aug1 |> slice(214) |> select(subject, .std.resid, inv_a1c)
+```
+
+## `augment` results: row 198
+
+for model `fit1`...
+
+```{r}
+#| echo: true
+
+aug1 |> slice(198)
+aug1 |> slice(198) |> select(subject, .std.resid, inv_a1c)
+```
+
+## Testing the largest outlier?
+
+```{r}
+#| echo: true
+
+outlierTest(fit1) ## from car package
+```
+
+A studentized residual is just another way to standardize the residuals that has some useful properties here. 
+
+- No indication that having a maximum absolute value of 3.5 in a sample of `r nrow(aug1)` studentized residuals is a major concern about the Normality assumption, given the Bonferroni p-value = 0.182.
+
+## `augment` for models `fit2` and `fit3`
+
+Later, we'll need the `augment` results for our other two models: `fit2` and `fit3`.
+
+```{r}
+#| echo: true
+
+aug2 <- augment(fit2, data = dm500_i_train) |>
+  mutate(inv_a1c = 100/a1c) # add in our model's outcome
+```
+
+```{r}
+#| echo: true
+
+aug3 <- augment(fit3, data = dm500_i_train) |>
+  mutate(inv_a1c = 100/a1c) # add in our model's outcome
+```
+
+## Influential Observations in `fit2`?
+
+```{r}
+#| echo: true
+check_model(fit2, check = "outliers")
+```
+
+## Summary across `fit2`
+
+```{r}
+#| echo: true
+
+aug2 |> select(inv_a1c, .fitted:.std.resid) |> summary()
+```
+
+## `augment` results: row 214
+
+for model `fit2`...
+
+```{r}
+#| echo: true
+
+aug2 |> slice(214)
+aug2 |> slice(214) |> select(subject, .std.resid, inv_a1c)
+```
+
+## `augment` results: row 198
+
+for model `fit2`...
+
+```{r}
+#| echo: true
+
+aug2 |> slice(198)
+aug2 |> slice(198) |> select(subject, .std.resid, inv_a1c)
+```
+
+## Testing the largest outlier?
+
+```{r}
+#| echo: true
+
+outlierTest(fit2) ## from car package
+```
+
+## Influential Observations in `fit3`?
+
+```{r}
+#| echo: true
+check_model(fit3, check = "outliers")
+```
+
+## Summary across `fit3`
+
+```{r}
+#| echo: true
+
+aug3 |> select(inv_a1c, .fitted:.std.resid) |> summary()
+```
+
+## `augment` results: row 214
+
+for model `fit3`...
+
+```{r}
+#| echo: true
+
+aug3 |> slice(214)
+aug3|> slice(214) |> select(subject, .std.resid, inv_a1c)
+```
+
+## `augment` results: row 198
+
+for model `fit3`...
+
+```{r}
+#| echo: true
+
+aug3 |> slice(198)
+aug3 |> slice(198) |> select(subject, .std.resid, inv_a1c)
+```
+
+## Testing the largest outlier?
+
+```{r}
+#| echo: true
+
+outlierTest(fit3) ## from car package
+```
+
+## Normality Check of `fit1` Residuals?
+
+```{r}
+#| echo: true
+check_model(fit1, check = "normality")
+```
+
+## Normal Q-Q with detrending?
+
+```{r}
+#| echo: true
+check_model(fit1, check = "qq", detrend = TRUE)
+```
+
+## Normal Q-Q without detrending?
+
+```{r}
+#| echo: true
+check_model(fit1, check = "qq", detrend = FALSE)
+```
+
+## Identifying poorly fit points
+
+```{r}
+#| echo: true
+
+which.max(aug1$.std.resid)
+which.min(aug1$.std.resid)
+
+slice(aug1, c(1, 198))
+slice(aug1, c(1, 198)) |> select(subject, .std.resid, inv_a1c)
+```
+
+## Normality Check of `fit2` Residuals?
+
+```{r}
+#| echo: true
+check_model(fit2, check = "normality")
+```
+
+## Normal Q-Q of Residuals in `fit2`?
+
+```{r}
+#| echo: true
+check_model(fit2, check = "qq", detrend = FALSE)
+```
+
+## Identifying poorly fit points
+
+```{r}
+#| echo: true
+
+which.max(aug2$.std.resid)
+which.min(aug2$.std.resid)
+
+slice(aug2, c(1, 198))
+slice(aug2, c(1, 198)) |> select(subject, .std.resid, inv_a1c)
+```
+
+## Normality Check of `fit3` Residuals?
+
+```{r}
+#| echo: true
+check_model(fit3, check = "normality")
+```
+
+## Normal Q-Q of Residuals in `fit3`?
+
+```{r}
+#| echo: true
+check_model(fit3, check = "qq", detrend = FALSE)
+```
+
+## Identifying poorly fit points
+
+```{r}
+#| echo: true
+
+which.max(aug3$.std.resid)
+which.min(aug3$.std.resid)
+
+slice(aug3, c(1, 198))
+slice(aug3, c(1, 198)) |> select(subject, .std.resid, inv_a1c)
+```
+
+
+## Checking for Collinearity
+
+Collinearity refers to correlations between predictors. 
+
+- Strong correlations between predictors can inflate the variance of our estimates, and also make it difficult to distinguish effects attributable to the correlated predictors.
+- When we have multiple predictors (as in `fit2` and `fit3`) it is worthwhile to quantify the extent to which our variances are inflated by this collinearity.
+
+Sometimes, a correlation matrix or a scatterplot matrix can help...
+
+## Correlation Matrix (from Class 19)
+
+```{r}
+#| echo: true
+#| message: true
+temp <- dm500_i_train |> mutate(inv_a1c = 100/a1c) |> 
+  select(a1c_old, age, income, inv_a1c)
+correlation(temp)
+```
+
+- `fit2` includes `age` and `a1c_old` as predictors
+- `fit3` adds in a categorical predictor: `income` category (not shown)
+
+## Scatterplot Matrix (from Class 19)
+
+- I select the outcome last. Then, the bottom row will show the most important scatterplots, with the outcome on the Y axis, and each predictor, in turn on the X.
+- `ggpairs()` comes from the `GGally` package.
+
+```{r}
+#| echo: true
+#| output-location: slide
+temp <- dm500_i_train |> 
+  mutate(inv_a1c = 100/a1c) |>
+  select(a1c_old, age, income, inv_a1c)
+
+ggpairs(temp, 
+    title = "Scatterplots: Model Development Sample",
+    lower = list(combo = wrap("facethist", bins = 10)))
+```
+
+## The `vif()` function
+
+We can estimate the effect of collinearity directly through the `vif()` function in the `car` package.
+
+```{r}
+#| echo: true
+vif(fit3)
+
+vif(fit2)
+```
+
+- (generalized) variance inflation factors above 5 are worthy of our special attention
+
+## Model `fit2` Check for Collinearity
+
+```{r}
+#| echo: true
+check_model(fit2, check = "vif")
+```
+
+## Model `fit3` Check for Collinearity
+
+```{r}
+#| echo: true
+check_model(fit3, check = "vif")
+```
+
+## Posterior Predictive Check: `fit1`
+
+```{r}
+#| echo: true
+check_model(fit1, check = "pp_check")
+```
+
+## `fit1`: Observed vs. Predicted
+
+```{r}
+#| echo: true
+
+ggplot(aug1, aes(x = .fitted, y = inv_a1c)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, lty = "dashed", col = "magenta") 
+```
+
+## `fit1`: Observed and Predicted
+
+```{r}
+#| echo: true
+aug1 |> reframe(lovedist(inv_a1c))
+
+aug1 |> reframe(lovedist(.fitted))
+
+cor(aug1$inv_a1c, aug1$.fitted)
+```
+
+
+## `fit1`: Predictions and Observed
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(aug1, aes(x = .fitted, y = "")) +
+  geom_violin() + 
+  geom_boxplot(fill = "royalblue", alpha = 0.5, width = 0.3) + 
+  xlim(0, 25) +
+  stat_summary(fun = "mean", col = "red") +
+  labs(title = "Predicted 100/A1c values (model fit1)", y = "")
+
+p2 <- ggplot(aug1, aes(x = inv_a1c, y = "")) +
+  geom_violin() + 
+  geom_boxplot(fill = "mistyrose", alpha = 0.5, width = 0.3) + 
+  xlim(0, 25) +
+  stat_summary(fun = "mean", col = "red") +
+  labs(title = "Observed 100/A1c values", y = "")
+
+p1 / p2
+
+```
+
+
+## Posterior Predictive Check: `fit2`
+
+```{r}
+#| echo: true
+check_model(fit2, check = "pp_check")
+```
+
+## `fit2`: Predictions and Observed
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(aug2, aes(x = .fitted, y = "")) +
+  geom_violin() + 
+  geom_boxplot(fill = "royalblue", alpha = 0.5, width = 0.3) + 
+  xlim(0, 25) +
+  stat_summary(fun = "mean", col = "red") +
+  labs(title = "Predicted 100/A1c values (model fit2)", y = "")
+
+p2 <- ggplot(aug2, aes(x = inv_a1c, y = "")) +
+  geom_violin() + 
+  geom_boxplot(fill = "mistyrose", alpha = 0.5, width = 0.3) + 
+  xlim(0, 25) +
+  stat_summary(fun = "mean", col = "red") +
+  labs(title = "Observed 100/A1c values", y = "")
+
+p1 / p2
+
+```
+
+## Posterior Predictive Check: `fit3`
+
+```{r}
+#| echo: true
+check_model(fit3, check = "pp_check")
+```
+
+## `fit3`: Predictions and Observed
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(aug3, aes(x = .fitted, y = "")) +
+  geom_violin() + 
+  geom_boxplot(fill = "royalblue", alpha = 0.5, width = 0.3) + 
+  xlim(0, 25) +
+  stat_summary(fun = "mean", col = "red") +
+  labs(title = "Predicted 100/A1c values (model fit3)", y = "")
+
+p2 <- ggplot(aug1, aes(x = inv_a1c, y = "")) +
+  geom_violin() + 
+  geom_boxplot(fill = "mistyrose", alpha = 0.5, width = 0.3) + 
+  xlim(0, 25) +
+  stat_summary(fun = "mean", col = "red") +
+  labs(title = "Observed 100/A1c values", y = "")
+
+p1 / p2
+
+```
+
+## Model `fit1` Checking
+
+```{r}
+#| echo: true
+check_model(fit1)
+```
+
+## Model `fit2` Checking
+
+```{r}
+#| echo: true
+check_model(fit2)
+```
+
+## Model `fit3` Checking
+
+```{r}
+#| echo: true
+check_model(fit3)
+```
+
+## Coming Soon
+
+8. Assessing the candidate models more thoroughly, in both the training and test samples
+    - MAPE, RMSPE, Maximum Prediction Error, Validated $R^2$
+9. Considering Bayesian alternative fits with weakly informative priors
+10. Incorporating multiple imputation in building a final model
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

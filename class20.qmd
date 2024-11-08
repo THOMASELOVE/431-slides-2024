@@ -458,7 +458,7 @@ aug1 <- augment(fit1, data = dm500_i_train) |>
 `aug1` includes all variables in `dm500_i_train` and also:
 
 - `inv_a1c` = 100/`a1c`, transformed outcome `fit1` predicts
-- `.fitted` = fitted (predicted) values of 1/`a1c`
+- `.fitted` = fitted (predicted) values of 100/`a1c`
 - `.resid` = residual (observed - fitted outcome) values; larger residuals (positive or negative) mean poorer fit
 - `.std.resid` = standardized residuals (residuals scaled to SD = 1, remember residual mean is already 0)
 

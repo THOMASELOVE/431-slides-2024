@@ -330,8 +330,8 @@ dm500_i_train |> reframe(lovedist(100/a1c))
 #| echo: true
 #| message: true
 temp <- dm500_i_train |> 
-  mutate(inv_a1c = 100/a1c) |>
-  select(a1c_old, age, income, inv_a1c)
+  mutate(transa1c = 100/a1c) |>
+  select(a1c_old, age, income, transa1c)
 
 correlation(temp)
 ```
@@ -345,8 +345,8 @@ correlation(temp)
 #| echo: true
 #| output-location: slide
 temp <- dm500_i_train |> 
-  mutate(inv_a1c = 100/a1c) |>
-  select(a1c_old, age, income, inv_a1c)
+  mutate(transa1c = 100/a1c) |>
+  select(a1c_old, age, income, transa1c)
 
 ggpairs(temp, 
     title = "Scatterplots: Model Development Sample",
@@ -359,11 +359,12 @@ ggpairs(temp,
 
 ```{r}
 #| echo: true
-fit1 <- lm((100/a1c) ~ a1c_old, data = dm500_i_train)
 
-fit2 <- lm((100/a1c) ~ a1c_old + age, data = dm500_i_train)
+dm500_i_train <- dm500_i_train |> mutate(transa1c = 100/a1c)
 
-fit3 <- lm((100/a1c) ~ a1c_old + age + income, 
+fit1 <- lm(transa1c ~ a1c_old, data = dm500_i_train)
+fit2 <- lm(transa1c ~ a1c_old + age, data = dm500_i_train)
+fit3 <- lm(transa1c ~ a1c_old + age + income, 
             data = dm500_i_train)
 
 c(n_obs(fit1), n_obs(fit2), n_obs(fit3))

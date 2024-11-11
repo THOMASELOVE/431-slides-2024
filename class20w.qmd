@@ -74,7 +74,7 @@ We want to predict the subject's current Hemoglobin A1c level (`a1c`), using (up
 
 ```{r}
 #| echo: true
-dm500 <- readRDS("c19/data/dm500.Rds")
+dm500 <- readRDS("c20/data/dm500.Rds")
 
 dm500
 ```
@@ -120,11 +120,12 @@ c(nrow(dm500_i_train), nrow(dm500_i_test), nrow(dm500_i))
 
 ```{r}
 #| echo: true
-fit1 <- lm((100/a1c) ~ a1c_old, data = dm500_i_train)
 
-fit2 <- lm((100/a1c) ~ a1c_old + age, data = dm500_i_train)
+dm500_i_train <- dm500_i_train |> mutate(transa1c = 100/a1c)
 
-fit3 <- lm((100/a1c) ~ a1c_old + age + income, 
+fit1 <- lm(transa1c ~ a1c_old, data = dm500_i_train)
+fit2 <- lm(transa1c ~ a1c_old + age, data = dm500_i_train)
+fit3 <- lm(transa1c ~ a1c_old + age + income, 
             data = dm500_i_train)
 
 c(n_obs(fit1), n_obs(fit2), n_obs(fit3))
@@ -444,14 +445,13 @@ from the `broom` package...
 ```{r}
 #| echo: true
 
-aug1 <- augment(fit1, data = dm500_i_train) |>
-  mutate(inv_a1c = 100/a1c) # add in our model's outcome
+aug1 <- augment(fit1, data = dm500_i_train)
 ```
 
 `aug1` includes all variables in `dm500_i_train` and also:
 
-- `inv_a1c` = 100/`a1c`, transformed outcome `fit1` predicts
-- `.fitted` = fitted (predicted) values of 1/`a1c`
+- `transa1c` = 100/`a1c`, transformed outcome `fit1` predicts
+- `.fitted` = fitted (predicted) values of 100/`a1c`
 - `.resid` = residual (observed - fitted outcome) values; larger residuals (positive or negative) mean poorer fit
 - `.std.resid` = standardized residuals (residuals scaled to SD = 1, remember residual mean is already 0)
 
@@ -463,14 +463,14 @@ aug1 <- augment(fit1, data = dm500_i_train) |>
 - `.cooksd` = Cook's distance (or Cook's d), a measure of the subject's *influence* on the model (larger Cook's d values indicate that removing the point will materially change the model's coefficients)
 - plus `.sigma` = estimated $\sigma$ if this point is dropped from the model
 
-## `augment` results: last 6 subjects
+## `augment` results: last 3 subjects
 
 ```{r}
 #| echo: true
 
-aug1 |> tail() 
+aug1 |> tail(3) |> select(1:8)
 
-aug1 |> tail() |> select(subject, .std.resid, inv_a1c)
+aug1 |> tail(3) |> select(9:12)
 ```
 
 ## Summarizing our New Measures
@@ -480,7 +480,7 @@ for model `fit1`...
 ```{r}
 #| echo: true
 
-aug1 |> select(inv_a1c, .fitted:.std.resid) |> summary()
+aug1 |> select(transa1c, .fitted:.std.resid) |> summary()
 ```
 
 
@@ -491,8 +491,8 @@ for model `fit1`...
 ```{r}
 #| echo: true
 
-aug1 |> slice(214)
-aug1 |> slice(214) |> select(subject, .std.resid, inv_a1c)
+aug1 |> slice(214) |> select(1:8)
+aug1 |> slice(214) |> select(subject, 9:12)
 ```
 
 ## `augment` results: row 198
@@ -502,8 +502,8 @@ for model `fit1`...
 ```{r}
 #| echo: true
 
-aug1 |> slice(198)
-aug1 |> slice(198) |> select(subject, .std.resid, inv_a1c)
+aug1 |> slice(198) |> select(1:8)
+aug1 |> slice(198) |> select(subject, 9:12)
 ```
 
 ## Testing the largest outlier?
@@ -525,15 +525,8 @@ Later, we'll need the `augment` results for our other two models: `fit2` and `fi
 ```{r}
 #| echo: true
 
-aug2 <- augment(fit2, data = dm500_i_train) |>
-  mutate(inv_a1c = 100/a1c) # add in our model's outcome
-```
-
-```{r}
-#| echo: true
-
-aug3 <- augment(fit3, data = dm500_i_train) |>
-  mutate(inv_a1c = 100/a1c) # add in our model's outcome
+aug2 <- augment(fit2, data = dm500_i_train) 
+aug3 <- augment(fit3, data = dm500_i_train) 
 ```
 
 ## Influential Observations in `fit2`?
@@ -548,7 +541,7 @@ check_model(fit2, check = "outliers")
 ```{r}
 #| echo: true
 
-aug2 |> select(inv_a1c, .fitted:.std.resid) |> summary()
+aug2 |> select(transa1c, .fitted:.std.resid) |> summary()
 ```
 
 ## `augment` results: row 214
@@ -558,8 +551,8 @@ for model `fit2`...
 ```{r}
 #| echo: true
 
-aug2 |> slice(214)
-aug2 |> slice(214) |> select(subject, .std.resid, inv_a1c)
+aug2 |> slice(214) |> select(1:8)
+aug2 |> slice(214) |> select(subject, 9:12)
 ```
 
 ## `augment` results: row 198
@@ -569,8 +562,8 @@ for model `fit2`...
 ```{r}
 #| echo: true
 
-aug2 |> slice(198)
-aug2 |> slice(198) |> select(subject, .std.resid, inv_a1c)
+aug2 |> slice(198) |> select(1:8)
+aug2 |> slice(198) |> select(subject, 9:12)
 ```
 
 ## Testing the largest outlier?
@@ -593,7 +586,7 @@ check_model(fit3, check = "outliers")
 ```{r}
 #| echo: true
 
-aug3 |> select(inv_a1c, .fitted:.std.resid) |> summary()
+aug3 |> select(transa1c, .fitted:.std.resid) |> summary()
 ```
 
 ## `augment` results: row 214
@@ -603,8 +596,8 @@ for model `fit3`...
 ```{r}
 #| echo: true
 
-aug3 |> slice(214)
-aug3|> slice(214) |> select(subject, .std.resid, inv_a1c)
+aug3 |> slice(214) |> select(1:8)
+aug3|> slice(214) |> select(subject, 9:12)
 ```
 
 ## `augment` results: row 198
@@ -614,8 +607,8 @@ for model `fit3`...
 ```{r}
 #| echo: true
 
-aug3 |> slice(198)
-aug3 |> slice(198) |> select(subject, .std.resid, inv_a1c)
+aug3 |> slice(198) |> select(1:8)
+aug3 |> slice(198) |> select(subject, 9:12)
 ```
 
 ## Testing the largest outlier?
@@ -656,7 +649,7 @@ which.max(aug1$.std.resid)
 which.min(aug1$.std.resid)
 
 slice(aug1, c(1, 198))
-slice(aug1, c(1, 198)) |> select(subject, .std.resid, inv_a1c)
+slice(aug1, c(1, 198)) |> select(subject, .std.resid, transa1c)
 ```
 
 ## Normality Check of `fit2` Residuals?
@@ -682,7 +675,7 @@ which.max(aug2$.std.resid)
 which.min(aug2$.std.resid)
 
 slice(aug2, c(1, 198))
-slice(aug2, c(1, 198)) |> select(subject, .std.resid, inv_a1c)
+slice(aug2, c(1, 198)) |> select(subject, .std.resid, transa1c)
 ```
 
 ## Normality Check of `fit3` Residuals?
@@ -708,7 +701,7 @@ which.max(aug3$.std.resid)
 which.min(aug3$.std.resid)
 
 slice(aug3, c(1, 198))
-slice(aug3, c(1, 198)) |> select(subject, .std.resid, inv_a1c)
+slice(aug3, c(1, 198)) |> select(subject, .std.resid, transa1c)
 ```
 
 
@@ -726,8 +719,7 @@ Sometimes, a correlation matrix or a scatterplot matrix can help...
 ```{r}
 #| echo: true
 #| message: true
-temp <- dm500_i_train |> mutate(inv_a1c = 100/a1c) |> 
-  select(a1c_old, age, income, inv_a1c)
+temp <- dm500_i_train |> select(a1c_old, age, income, transa1c)
 correlation(temp)
 ```
 
@@ -743,8 +735,7 @@ correlation(temp)
 #| echo: true
 #| output-location: slide
 temp <- dm500_i_train |> 
-  mutate(inv_a1c = 100/a1c) |>
-  select(a1c_old, age, income, inv_a1c)
+  select(a1c_old, age, income, transa1c)
 
 ggpairs(temp, 
     title = "Scatterplots: Model Development Sample",
@@ -790,7 +781,7 @@ check_model(fit1, check = "pp_check")
 ```{r}
 #| echo: true
 
-ggplot(aug1, aes(x = .fitted, y = inv_a1c)) +
+ggplot(aug1, aes(x = .fitted, y = transa1c)) +
   geom_point() +
   geom_abline(slope = 1, intercept = 0, lty = "dashed", col = "magenta") 
 ```
@@ -799,11 +790,11 @@ ggplot(aug1, aes(x = .fitted, y = inv_a1c)) +
 
 ```{r}
 #| echo: true
-aug1 |> reframe(lovedist(inv_a1c))
+aug1 |> reframe(lovedist(transa1c))
 
 aug1 |> reframe(lovedist(.fitted))
 
-cor(aug1$inv_a1c, aug1$.fitted)
+cor(aug1$transa1c, aug1$.fitted)
 ```
 
 
@@ -820,7 +811,7 @@ p1 <- ggplot(aug1, aes(x = .fitted, y = "")) +
   stat_summary(fun = "mean", col = "red") +
   labs(title = "Predicted 100/A1c values (model fit1)", y = "")
 
-p2 <- ggplot(aug1, aes(x = inv_a1c, y = "")) +
+p2 <- ggplot(aug1, aes(x = transa1c, y = "")) +
   geom_violin() + 
   geom_boxplot(fill = "mistyrose", alpha = 0.5, width = 0.3) + 
   xlim(0, 25) +
@@ -852,7 +843,7 @@ p1 <- ggplot(aug2, aes(x = .fitted, y = "")) +
   stat_summary(fun = "mean", col = "red") +
   labs(title = "Predicted 100/A1c values (model fit2)", y = "")
 
-p2 <- ggplot(aug2, aes(x = inv_a1c, y = "")) +
+p2 <- ggplot(aug2, aes(x = transa1c, y = "")) +
   geom_violin() + 
   geom_boxplot(fill = "mistyrose", alpha = 0.5, width = 0.3) + 
   xlim(0, 25) +
@@ -883,7 +874,7 @@ p1 <- ggplot(aug3, aes(x = .fitted, y = "")) +
   stat_summary(fun = "mean", col = "red") +
   labs(title = "Predicted 100/A1c values (model fit3)", y = "")
 
-p2 <- ggplot(aug1, aes(x = inv_a1c, y = "")) +
+p2 <- ggplot(aug1, aes(x = transa1c, y = "")) +
   geom_violin() + 
   geom_boxplot(fill = "mistyrose", alpha = 0.5, width = 0.3) + 
   xlim(0, 25) +
@@ -928,3 +919,4 @@ check_model(fit3)
 #| echo: true
 xfun::session_info()
 ```
+

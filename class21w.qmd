@@ -1,0 +1,541 @@
+---
+title: "431 Class 21"
+author: "https://thomaselove.github.io/431-2024/"
+date: "2024-11-12"
+format:
+  docx:
+    highlight-style: github
+---
+
+## Today's Agenda
+
+1. Reviewing (**and Fixing**) What We Have Done So Far
+2. Considering Bayesian alternative fits with weakly informative priors
+    - What must we do differently (Bayes vs. OLS)?
+3. Assessing the candidate models more thoroughly, in both the training and test samples
+    - MAPE, RMSPE, Maximum Prediction Error, Validated $R^2$
+4. Incorporating multiple imputation in building a final model
+
+## 431 strategy: "most useful" model?
+
+1. Split the data into a development (model training) sample of about 70-80% of the observations, and a holdout (model test) sample, containing the remaining observations.
+2. Develop candidate models using the development sample.
+3. Assess the quality of fit for candidate models within the development sample.
+4. Check adherence to regression assumptions in the development sample.
+
+## 431 strategy: "most useful" model?
+
+5. When you have candidates, assess them based on the accuracy of the predictions they make for the data held out (and thus not used in building the models.) 
+6. Select a "final" model for use based on the evidence in steps 3, 4 and especially 5.
+
+## R Packages and Data Load
+
+```{r}
+#| echo: true
+
+knitr::opts_chunk$set(comment = NA)
+library(janitor)
+library(mice)
+library(naniar)
+library(patchwork)
+library(car)         ## for vif function as well as Box-Cox
+library(GGally)      ## for ggpairs scatterplot matrix
+library(broom)       ## for predictions, residuals with augment
+library(rstanarm)    ## fitting Bayesian regressions
+library(gt)          ## some prettier tables
+library(easystats)
+library(tidyverse)
+
+source("c21/data/Love-431.R")
+theme_set(theme_bw())
+dm500 <- readRDS("c21/data/dm500.Rds")
+```
+
+# What We've Done So Far
+
+## Imputation and Partitioning
+
+```{r}
+#| echo: true
+set.seed(20241031)
+
+dm500_tenimps <- mice(dm500, m = 10, printFlag = FALSE)
+dm500_i <- complete(dm500_tenimps, 7) |> tibble()
+
+set.seed(4312024)
+dm500_i_train <- dm500_i |> 
+  slice_sample(prop = 0.7, replace = FALSE)
+dm500_i_test <- 
+  anti_join(dm500_i, dm500_i_train, by = "subject")
+```
+
+# Fixing My Mistake from Classes 19-20
+
+## Three Regression Models We've Fit
+
+- Using the model training sample, and a (100/a1c) outcome transformation.
+- My mistake: once you decide on a transformation, **create it before fitting**.
+
+```{r}
+#| echo: true
+
+dm500_i_train <- dm500_i_train |> mutate(transa1c = 100/a1c)
+
+fit1 <- lm(transa1c ~ a1c_old, data = dm500_i_train)
+
+fit2 <- lm(transa1c ~ a1c_old + age, data = dm500_i_train)
+
+fit3 <- lm(transa1c ~ a1c_old + age + income, 
+            data = dm500_i_train)
+```
+
+## Performance Indices for 3 Models
+
+- in the training sample
+
+```{r}
+#| echo: TRUE
+
+plot(compare_performance(fit1, fit2, fit3))
+```
+
+## OLS Model `fit1` Checking
+
+```{r}
+#| echo: true
+check_model(fit1)
+```
+
+## OLS Model `fit2` Checking
+
+```{r}
+#| echo: true
+check_model(fit2)
+```
+
+## OLS Model `fit3` Checking
+
+```{r}
+#| echo: true
+check_model(fit3)
+```
+
+## `augment` training samples
+
+```{r}
+#| echo: true
+
+aug1 <- augment(fit1, data = dm500_i_train)
+aug2 <- augment(fit2, data = dm500_i_train)
+aug3 <- augment(fit3, data = dm500_i_train)
+```
+
+`augment` results for `fit2` in our first four subjects...
+
+```{r}
+#| echo: true
+aug2 |> head() |> gt()
+```
+
+# Bayesian fits instead?
+
+## Refit with Bayesian models?
+
+What must we change to use Bayesian (`stan_glm`) fits?
+
+1. Must create transformed outcome in data prior to fitting with `rstanarm()`.
+2. Results are a bit different for `model_parameters()`
+3. Results are a bit different for `model_performance()`
+4. No real change for `check_models()`
+5. There is no `augment()` function for `rstanarm()` fits.
+
+## Refit with Bayesian models?
+
+with default weakly informative priors
+
+```{r}
+#| echo: true
+set.seed(20241112)
+
+fit1B <- stan_glm(transa1c ~ a1c_old, 
+                  data = dm500_i_train, refresh = 0)
+fit2B <- stan_glm(transa1c ~ a1c_old + age, 
+                  data = dm500_i_train, refresh = 0)
+fit3B <- stan_glm(transa1c ~ a1c_old + age + income, 
+            data = dm500_i_train, refresh = 0)
+```
+
+## Estimating `fit1` Coefficients?
+
+- Bayesian fit
+
+```{r}
+#| echo: true
+
+model_parameters(fit1B, ci = 0.95) |> gt()
+```
+
+- OLS fit
+
+```{r}
+#| echo: true
+
+model_parameters(fit1, ci = 0.95) |> gt() |> fmt_number(decimals = 3)
+```
+
+## Estimating `fit2` Coefficients?
+
+```{r}
+#| echo: true
+
+model_parameters(fit2B, ci = 0.95) |> gt() |> fmt_number(decimals = 3)
+model_parameters(fit2, ci = 0.95) |> gt() |> fmt_number(decimals = 3)
+```
+
+## Estimating `fit3` Coefficients?
+
+```{r}
+#| echo: true
+
+model_parameters(fit3B, ci = 0.95) |> gt() |> fmt_number(decimals = 3)
+model_parameters(fit3, ci = 0.95) |> gt() |> fmt_number(decimals = 3)
+```
+
+## Model Performance with `fit1B`?
+
+```{r}
+#| echo: true
+
+
+model_performance(fit1B) |> gt() |> tab_options(table.font.size = 24)
+```
+
+- R2 = "unadjusted" Bayesian $R^2$ (see [r2_bayes](https://easystats.github.io/performance/reference/r2_bayes.html) for details)
+- R2_adjusted = leave-one-out cross-validation (LOO) adjusted $R^2$, which is conceptually closer to our OLS adjusted $R^2$ than some other options.
+- RMSE = root mean squared error (standard deviation of the unexplained variance) and lower values mean better fit.
+
+## Bayesian Model Performance
+
+```{r}
+#| echo: true
+
+
+model_performance(fit2B) |> gt() |> tab_options(table.font.size = 24)
+```
+
+- Sigma = residual standard deviation (interpret in same way as RMSE)
+- WAIC = widely applicable information criterion. Lower WAIC values mean better fit.
+
+## Bayesian Model Performance
+
+```{r}
+#| echo: true
+
+
+model_performance(fit3B) |> gt() |> tab_options(table.font.size = 24)
+```
+
+- LOOIC = leave-one-out cross-validation (LOO) information criterion. Lower LOOIC values mean better fit.
+- LOOIC_SE = standard error of LOOIC
+
+See [this link](https://easystats.github.io/performance/reference/model_performance.stanreg.html) on "Performance of Bayesian Models" for still more options.
+
+## Performance within Training Sample?
+
+```{r}
+#| echo: true
+
+
+compare_performance(fit1B, fit2B, fit3B, rank = TRUE) |> 
+  gt() |> fmt_number(decimals = 3)
+
+compare_performance(fit1, fit2, fit3, rank = TRUE) |> 
+  gt() |> fmt_number(decimals = 3)
+```
+
+## Bayes Performance Indicators?
+
+```{r}
+#| echo: true
+
+
+plot(compare_performance(fit1B, fit2B, fit3B))
+```
+
+## Checking Bayesian `fit1B`
+
+```{r}
+#| echo: true
+check_model(fit1B)
+```
+
+## Checking Bayesian `fit2B`
+
+```{r}
+#| echo: true
+check_model(fit2B)
+```
+
+## Checking Bayesian `fit3B`
+
+```{r}
+#| echo: true
+check_model(fit3B)
+```
+
+## No `augment` from Bayes fits
+
+The `augment()` function from **broom** doesn't work with Bayesian fits using `rstanarm()`. 
+
+We still want to get our predicted (fitted) values and residuals for each observation in our training sample.
+
+```{r}
+#| echo: true
+aug_1B <- dm500_i_train |>
+  mutate(.fitted = predict(fit1B),
+         .resid = transa1c - predict(fit1B))
+aug_2B <- dm500_i_train |>
+  mutate(.fitted = predict(fit2B),
+         .resid = transa1c - predict(fit2B))
+aug_3B <- dm500_i_train |>
+  mutate(.fitted = predict(fit3B),
+         .resid = transa1c - predict(fit3B))
+```
+
+## `fit2` model (OLS vs Bayes)
+
+```{r}
+#| echo: true
+aug2 |> select(1:8) |> head(3)
+aug_2B |> head(3)
+```
+
+
+# Extending to the Test Sample
+
+## Making Predictions: Test Sample
+
+- Create transformed outcome in test sample.
+- For OLS fits, apply `augment()` to new data = test sample.
+
+```{r}
+#| echo: true
+
+dm500_i_test <- dm500_i_test |> mutate(transa1c = 100/a1c)
+
+aug1_test <- augment(fit1, newdata = dm500_i_test) |> 
+  mutate(mod = "fit1")
+aug2_test <- augment(fit2, newdata = dm500_i_test) |> 
+  mutate(mod = "fit2")
+aug3_test <- augment(fit3, newdata = dm500_i_test) |> 
+  mutate(mod = "fit3")
+```
+
+Results on next slide...
+
+## `augment` for each model
+
+```{r}
+#| echo: true
+
+aug1_test |> head(2) |> gt()
+aug2_test |> head(2) |> gt()
+aug3_test |> head(2) |> gt()
+```
+
+## Combine Augmented Results
+
+```{r}
+#| echo: true
+temp12 <- bind_rows(aug1_test, aug2_test)
+test_res <- bind_rows(temp12, aug3_test) |>
+  relocate(subject, mod, a1c, everything()) |>
+  arrange(subject, mod)
+
+test_res |> head() |> gt() |> tab_options(table.font.size = 24)
+```
+
+## Calculating Prediction Errors
+
+For each of our (OLS) models, we have:
+
+- `a1c`, the outcome we actually care about
+- `transa1c` = 100/`a1c`, the transformed outcome 
+- `.fitted`, a predicted `transa1c` from the model
+
+What we want is 
+
+- `a1c_pred`, the predicted `a1c` using this model, and
+- `a1c_error`, the error made in predicting `a1c`
+
+## Back-Transformation
+
+Each `.fitted` value is a prediction of 100/`a1c`.
+
+$$
+\frac{100}{a1c} = \mbox{.fitted}, \mbox{ so } \frac{1}{a1c} = \frac{\mbox{.fitted}}{100}, \mbox{ and so}\\
+a1c = \frac{100}{\mbox{.fitted}}
+$$
+
+To get `a1c_pred` we need to back-transform our `.fitted` values, with 100/`.fitted`, it seems.
+
+## Adding predicted A1c and error
+
+- We add `a1c_pred`, the predicted `a1c` using this model, and
+- `a1c_error` = error for this model in predicting `a1c`
+
+```{r}
+#| echo: true
+test_res <- test_res |> 
+  mutate(a1c_pred = 100/.fitted,
+         a1c_error = a1c - a1c_pred)
+
+test_res |> head(4) |> gt() 
+```
+
+## Summarize Errors for Each Fit
+
+We'll look at four summary measures in 431...
+
+1. MAPE = mean absolute prediction error
+2. Max_APE = maximum absolute prediction error
+3. RMSPE = square root of mean squared prediction error
+4. Validated $R^2$ = squared correlation of predictions and outcome in the new data
+
+Measures 1-3 are all in the same units as `a1c`, our outcome.
+
+## Building our Four Summaries
+
+The `test_res` tibble contains, for each model,
+
+- `a1c`, the actual outcome value
+- `a1c_pred`, the predicted outcome value
+- `a1c_error` = `a1c` - `a1c_pred` = prediction error
+
+```{r}
+#| echo: true
+
+test_summary <- test_res |> 
+  group_by(mod) |>
+  summarize(MAPE = mean(abs(a1c_error)),
+            Max_APE = max(abs(a1c_error)),
+            RMSE = sqrt(mean(a1c_error^2)),
+            R2_val = cor(a1c, a1c_pred)^2)
+```
+
+## Table for Test-Sample Prediction
+
+```{r}
+#| echo: true
+test_summary |> gt() |> 
+  fmt_number(decimals = 4) |> tab_options(table.font.size = 30)
+```
+
+>- Which model is best, by these metrics? 
+  - `fit2` has smallest MAPE, RMSPE, and largest validated $R^2$
+  - `fit1` has smallest MaxAPE
+
+## What about a Bayesian fit?
+
+Everything is the same as OLS, except we'd have to work around the use of augment in our test data, but `predict()` can handle what we need, as below.
+
+```{r}
+#| echo: true
+test_1B <- dm500_i_test |>
+  mutate(a1c_pred = predict(fit1B, newdata = dm500_i_test),
+         a1c_error = transa1c - a1c_pred)
+test_1B |> head(4) |> gt()
+```
+
+# Putting it all together
+
+## Comparing `fit1`, `fit2`, `fit3`
+
+- `fit1` includes `a1c_old`, `fit2` adds `age`, `fit3` adds income
+- Similar model assumption problems (hard-to-ignore problem with linearity, maybe some non-constant variance)
+- **training** sample: `fit2` performed better than the others on adjusted $R^2$, AIC and $\sigma$, while `fit1` was best on BIC, and `fit3` was best on RMSE.
+- **test** sample: `fit2` performed better on MAPE, RMSPE and validated $R^2$, while `fit1` had the smallest maximum APE.
+- Differences between models on most metrics were modest.
+
+# Let's Choose Model `fit2`
+
+## Complete Case Analysis
+
+- **Project B Study 2**: Report the model building process, displaying conclusions from training sample (transformation decisions, fitted parameters with CIs and interpretations, comparison of performance metrics, checks of model assumptions) and from test sample (comparison of predictive error)
+
+- Of course, here we did some imputation, so we'd need to do this all over again to get these results.
+
+## Simple Imputation
+
+- **Project B Study 2**: Report the model building process, displaying conclusions from training sample (transformation decisions, fitted parameters with CIs and interpretations, comparison of performance metrics, checks of model assumptions) and from test sample (comparison of predictive error)
+
+- Sometimes, we do some of the steps above without reporting them to the public, of course. But that's not the goal here.
+
+## Model `fit2` using Single Imputation
+
+Estimated using a single imputation in training sample.
+
+```{r}
+#| echo: true
+n_obs(fit2)
+model_parameters(fit2, ci = 0.95) |> gt() |> 
+  fmt_number(decimals = 3) |> tab_options(table.font.size = 24)
+```
+
+## Model `fit2` using Single Imputation
+
+```{r}
+#| echo: true
+
+glance(fit2) |> select(1:6) |> gt() |> 
+  tab_options(table.font.size = 24)
+
+
+glance(fit2) |> select(7:12) |> gt() |> 
+  tab_options(table.font.size = 24)
+```
+
+## Incorporating Multiple Imputations
+
+- **Same as Project B Study 2**: Report the model building process, displaying conclusions from training sample (transformation decisions, fitted parameters with CIs and interpretations, comparison of performance metrics, checks of model assumptions) and from test sample (comparison of predictive error)
+
+- **New** Then **add** information on fitted parameters across the whole data set (not split into training and testing) after multiple (in this case, 10) imputations.
+
+## Using Ten Imputations
+
+`dm500_tenimps` contained `mice` results across 10 imputations, then we used the 7th in our work. Let's build a new set of results across the model we've settled on, with a fresh set of 10 imputations.
+
+- The original data (with missing values) are in `dm500` - we need only to add our transformed outcome, 100/`a1c`.
+
+```{r}
+#| echo: true
+dm500 <- dm500 |> mutate(transa1c = 100/a1c)
+
+imp2_ests <- dm500 |>
+  mice(m = 10, seed = 431, print = FALSE) |>
+  with(lm(transa1c ~ a1c_old + age)) |>
+  pool()
+```
+
+## Estimates across 10 imputations
+
+```{r}
+#| echo: true
+model_parameters(imp2_ests, ci = 0.95) |> gt() |> 
+  fmt_number(decimals = 3) |> tab_options(table.font.size = 24)
+glance(imp2_ests) |> gt() |> tab_options(table.font.size = 24)
+n_obs(imp2_ests)
+```
+
+## What's next?
+
+- Do most of this again, including some additional bells and whistles, and some new data.
+
+- Multiple imputation with Bayesian linear models is a topic for 432.
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

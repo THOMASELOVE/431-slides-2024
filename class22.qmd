@@ -33,7 +33,7 @@ library(naniar)
 library(janitor)
 library(broom)
 library(gt)
-library(mosaic)
+library(mosaic)      ## some nice tools for summaries
 library(car)
 library(GGally)
 library(mice)
@@ -76,7 +76,7 @@ How can you avoid `setwd()` at the top of every script?
 
 1. Organize each logical project into a folder on your computer.
 2. Make sure the top-level folder advertises itself as such. If you use RStudio and/or Git, those both leave characteristic files that get the job done.
-3. Use the here() function to build the path when you read or write a file. Create paths relative to the top-level directory.
+3. Use the `here()` function to build the path when you read or write a file. Create paths relative to the top-level directory.
 4. Whenever you work on this project, launch the R process from the project’s top-level directory. 
 
 # Creating / Replacing Missing Values
@@ -238,7 +238,7 @@ which.min(ms431$brainwt)
 slice(ms431, 17)
 ```
 
-- How many of these mammals have a brainwt below 0.01 kg?
+- How many of these mammals have a `brainwt` below 0.01 kg?
 
 ```{r}
 #| echo: true
@@ -301,7 +301,7 @@ Can we assume the data are MCAR, per Little's test?
 
 ```{r}
 #| echo: true
-mcar_test(ms431)
+mcar_test(ms431)  ## naniar provides this function
 ```
 
 With a small $p$ value for the $\chi^2$ test statistic, we would conclude that the `ms431` data are not MCAR.
@@ -410,10 +410,8 @@ vif(lm(awake ~ vore + bodywt + brain_prop + rem_prop, data = ms431_train))
 ```{r}
 #| echo: true
 m6 <- lm(awake ~ bodywt + brain_prop + vore + rem_prop, data = ms431_train)
-tidy(m6, conf.int = T, conf.level = 0.90) |> gt()
-
-glance(m6) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
-                     df, df.residual, everything()) |> gt()
+model_parameters(m6, ci = 0.90) |> gt()
+model_performance(m6) |> gt()
 ```
 
 ## Model 5
@@ -421,10 +419,8 @@ glance(m6) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
 ```{r}
 #| echo: true
 m5 <- lm(awake ~ bodywt + brain_prop + rem_prop, data = ms431_train)
-tidy(m5, conf.int = T, conf.level = 0.90) |> gt()
-
-glance(m5) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
-                     df, df.residual, everything()) |> gt()
+model_parameters(m5, ci = 0.90) |> gt()
+model_performance(m5) |> gt()
 ```
 
 ## Model 4
@@ -432,10 +428,8 @@ glance(m5) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
 ```{r}
 #| echo: true
 m4 <- lm(awake ~ bodywt + brain_prop + vore, data = ms431_train)
-tidy(m4, conf.int = T, conf.level = 0.90) |> gt()
-
-glance(m4) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
-                     df, df.residual, everything()) |> gt()
+model_parameters(m4, ci = 0.90) |> gt()
+model_performance(m4) |> gt()
 ```
 
 ## Model 3
@@ -443,10 +437,8 @@ glance(m4) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
 ```{r}
 #| echo: true
 m3 <- lm(awake ~ bodywt + brain_prop, data = ms431_train)
-tidy(m3, conf.int = T, conf.level = 0.90) |> gt()
-
-glance(m3) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
-                     df, df.residual, everything()) |> gt()
+model_parameters(m3, ci = 0.90) |> gt()
+model_performance(m3) |> gt()
 ```
 
 ## Model 2
@@ -454,10 +446,8 @@ glance(m3) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
 ```{r}
 #| echo: true
 m2 <- lm(awake ~ brain_prop, data = ms431_train)
-tidy(m2, conf.int = T, conf.level = 0.90) |> gt()
-
-glance(m2) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
-                     df, df.residual, everything()) |> gt()
+model_parameters(m2, ci = 0.90) |> gt()
+model_performance(m2) |> gt()
 ```
 
 ## Model 1
@@ -465,10 +455,8 @@ glance(m2) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
 ```{r}
 #| echo: true
 m1 <- lm(awake ~ bodywt, data = ms431_train)
-tidy(m1, conf.int = T, conf.level = 0.90) |> gt()
-
-glance(m1) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
-                     df, df.residual, everything()) |> gt()
+model_parameters(m1, ci = 0.90) |> gt()
+model_performance(m1) |> gt()
 ```
 
 ## Combining `glance()` results
@@ -487,16 +475,52 @@ bind_rows(glance(m1) |> mutate(name = "m1"),
     fmt_number(decimals = 0, columns = c(5:6)) 
 ```
 
-## Move forward with `m3`, `m4` and `m5`
+## Compare Models
+
+```{r}
+#| echo: true
+compare_performance(m1, m2, m3, m4, m5, m6, rank = TRUE)
+```
+
+
+## Compare Models
+
+```{r}
+#| echo: true
+plot(compare_performance(m1, m2, m3, m4, m5, m6))
+```
+
+## Check Assumptions? (m1)
+
+```{r}
+#| echo: true
+check_model(m1)
+```
+
+## Check Assumptions? (m4)
+
+```{r}
+#| echo: true
+check_model(m4)
+```
+
+## Check Assumptions? (m6)
+
+```{r}
+#| echo: true
+check_model(m6)
+```
+
+## Move forward with `m1`, `m4` and `m6`
 
 ```{r}
 #| echo: true
 
-test_m3 <- augment(m3, newdata = ms431_test) |> mutate(mod = "m3")
+test_m1 <- augment(m1, newdata = ms431_test) |> mutate(mod = "m1")
 test_m4 <- augment(m4, newdata = ms431_test) |> mutate(mod = "m4")
-test_m5 <- augment(m5, newdata = ms431_test) |> mutate(mod = "m5")
+test_m6 <- augment(m6, newdata = ms431_test) |> mutate(mod = "m6")
 
-test_comp <- bind_rows(test_m3, test_m4, test_m5) |>
+test_comp <- bind_rows(test_m1, test_m4, test_m6) |>
   arrange(name, mod)
 ```
 
@@ -510,22 +534,19 @@ test_comp |>
             MAPE = mean(abs(.resid)), 
             RMSPE = sqrt(mean(.resid^2)),
             max_error = max(abs(.resid)),
-            median_APE = median(abs(.resid)),
             valid_R2 = cor(awake, .fitted)^2) |>
   gt() |> fmt_number(decimals = 4, columns = -"n") 
 ```
 
-We'll pick model m5.
+I'd probably pick model `m1` or `m4`. But first I'll show what happens if we pick model `m6` instead, just because I want to show as much missingness as possible.
 
-## Model 5 (training sample)
+## Model 6 (training sample)
 
 ```{r}
 #| echo: true
-m5 <- lm(awake ~ bodywt + brain_prop + rem_prop, data = ms431_train)
-tidy(m5, conf.int = T, conf.level = 0.90) |> gt()
-
-glance(m5) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs,
-                     df, df.residual, everything()) |> gt()
+m6 <- lm(awake ~ bodywt + brain_prop + vore + rem_prop, data = ms431_train)
+model_parameters(m6, ci = 0.90) |> gt()
+model_performance(m6) |> gt()
 ```
 
 ## Create Multiple Imputations
@@ -534,7 +555,7 @@ How many subjects have missing data that affect this model?
 
 ```{r}
 #| echo: true
-ms431_sub <- ms431 |> select(name, awake, bodywt, brain_prop, rem_prop)
+ms431_sub <- ms431 |> select(name, awake, bodywt, brain_prop, rem_prop, vore)
 
 pct_miss_case(ms431_sub)
 ```
@@ -545,79 +566,62 @@ pct_miss_case(ms431_sub)
 #| echo: true
 set.seed(4312345)
 ms431_mice <- mice(ms431, m = 50, printFlag = FALSE)
-```
-
-## Summary of Imputation Process {.smaller}
-
-```{r}
-#| echo: true
-
 summary(ms431_mice)
 ```
 
-## Run Model 5 on each imputation
+## Run Model 6 on each imputation
 
 ```{r}
 #| echo: true
 
-m5_mods <- with(ms431_mice, lm(awake ~ bodywt + brain_prop + rem_prop))
+m6_mods <- with(ms431_mice, lm(awake ~ bodywt + brain_prop + vore + rem_prop))
 
-summary(m5_mods)
+summary(m6_mods)
 ```
 
 ## Pool Results across imputations
 
 ```{r}
 #| echo: true
-m5_pool <- pool(m5_mods)
-summary(m5_pool, conf.int = TRUE, conf.level = 0.90)
+m6_pool <- pool(m6_mods)
+model_parameters(m6_pool, ci = 0.90)
 ```
 
 ## Estimate R-square and Adjusted R-square
 
 ```{r}
 #| echo: true
-pool.r.squared(m5_mods)
-pool.r.squared(m5_mods, adjusted = TRUE)
+pool.r.squared(m6_mods)
+pool.r.squared(m6_mods, adjusted = TRUE)
 ```
-
-## Residuals for `mod5` (20th imputation)
-
-```{r}
-#| echo: true
-
-par(mfrow = c(1,2)); plot(m5_mods$analyses[[20]], which = c(1:2))
-```
-
-## Residuals for `mod5` (20th imputation)
-
-```{r}
-#| echo: true
-
-par(mfrow = c(1,2)); plot(m5_mods$analyses[[20]], which = c(3,5)); par(mfrow = c(1,1))
-```
-
-## Which animal is that?
-
-```{r}
-#| echo: true
-ms431 |> slice(36)
-```
-
-## Which are the heavy mammals?
-
-```{r}
-#| echo: true
-
-ms431 |> filter(bodywt > 500)
-```
-
 
 ## More Details on MI modeling
 
 ```{r}
 #| echo: true
-m5_pool
+m6_pool
+```
+
+## What if we picked model `m1`?
+
+```{r}
+#| echo: true
+
+m1_mods <- with(ms431_mice, lm(awake ~ bodywt))
+m1_pool <- pool(m1_mods)
+model_parameters(m1_pool, ci = 0.90)
+pool.r.squared(m1_mods)
+```
+
+## What if we picked model `m4`?
+
+```{r}
+#| echo: true
+
+m4_mods <- with(ms431_mice, lm(awake ~ bodywt + brain_prop + vore))
+m4_pool <- pool(m4_mods)
+model_parameters(m4_pool, ci = 0.90)
+pool.r.squared(m4_mods)
 ```
 
 ## Guidelines for reporting, I (Sterne) {.smaller}
@@ -626,7 +630,7 @@ How should we report on analyses potentially affected by missing data?
 
 - Report the number of missing values for each variable of interest, or the number of cases with complete data for each important component of the analysis. Give reasons for missing values if possible, and indicate how many individuals were excluded because of missing data when reporting the flow of participants through the study. If possible, describe reasons for missing data in terms of other variables (rather than just reporting a universal reason such as treatment failure.)
 - Clarify whether there are important differences between individuals with complete and incomplete data, for example, by providing a table comparing the distributions of key exposure and outcome variables in these different groups
-- Describe the type of analysis used to account for missing data (eg, multiple imputation), and the assumptions that were made (eg, missing at random)
+- Describe the type of analysis used to account for missing data (e.g., multiple imputation), and the assumptions that were made (e.g., missing at random)
 
 ## Guidelines for reporting, II (Sterne) {.smaller}
 

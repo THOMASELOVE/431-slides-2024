@@ -278,8 +278,8 @@ Est. `bmi_end` | `ed_start` = High | `ed_start` = Low
 anova(withint)
 ```
 
-- Total SS = 1303 + 280 + 133 + 34979 = 36696
-- % explained = (1303 + 280 + 133) / 36696 = 0.047, or 4.7%
+- Total SS = 1303 + 280 + 133 + 34979 = 36695
+- % explained = (1303 + 280 + 133) / 36695 = 0.047, or 4.7%
 - Is this a big improvement over the `mainfx` model?
 
 ## Checking model `withint`
@@ -290,7 +290,7 @@ set.seed(202410291)
 check_model(withint, check = c("pp_check", "qq"), detrend = FALSE)
 ```
 
-## Compare peformance of our two models?
+## Compare performance of our two models?
 
 ```{r}
 #| echo: true

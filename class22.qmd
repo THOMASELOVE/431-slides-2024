@@ -18,9 +18,9 @@ format:
 
 - The `here()` package
 - Turning values like 77 and 99 into NA and vice versa
-- Selecting a multiple linear regression model for prediction of a quantitative outcome
+- Two functions for describing data concisely, from the `mosaic` package
+- Today's example: the `msleep` data from the `ggplot2` package in the `tidyverse`
 - Incorporating both single and multiple imputation to handle missing data
-- Our example: the `msleep` data from the `ggplot2` package in the `tidyverse`
 
 ## Today's Packages
 

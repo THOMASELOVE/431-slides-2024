@@ -1,0 +1,548 @@
+---
+title: "431 Class 24"
+author: Thomas E. Love, Ph.D.
+date: "2024-11-21"
+format:
+  revealjs: 
+    theme: default
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 431_2024_logo.png
+    footer: "431 Class 24 | 2024-11-21 | <https://thomaselove.github.io/431-2024/>"
+---
+
+## Today's Agenda
+
+- Today's example: the `msleep` data from the `ggplot2` package in the `tidyverse`
+- Incorporating both single and multiple imputation to handle missing data
+
+## Today's Packages
+
+```{r}
+#| echo: true
+#| message: false
+
+library(naniar)
+library(janitor)
+library(broom)
+library(gt)
+library(mosaic)      ## some nice tools for summaries
+library(car)
+library(GGally)
+library(mice)
+library(xfun) 
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+# Mammals and How They Sleep
+
+## The mammals sleep data set (`msleep`)
+
+```{r}
+#| echo: true
+msleep
+```
+
+- <https://ggplot2.tidyverse.org/reference/msleep.html> has details.
+
+## Today's Variables of Interest
+
+Variable | Description
+-------: | :-----------------
+`name` | Common name of mammal
+`vore` | Carni-, insecti-, herbi- or omnivore
+`brainwt` | brain weight in kilograms
+`bodywt` | body weight in kilograms
+`sleep_rem` | REM sleep, in hours
+`sleep_total` | total amount of sleep, in hours
+`awake` | (**outcome**) time spent awake, in hours
+
+## Modeling Plan
+
+:::{.callout-note}
+Note that `awake` = 24 - `sleep_total`.
+:::
+
+We want to predict `awake` using four potential predictors: 
+
+- the type of food the mammal consumes (`vore`)
+- the weight of the mammal's brain (`brainwt`)
+- the weight of the mammal's body, (`bodywt`), and
+- the proportion of total time asleep spent in REM sleep.
+
+## Creating the `ms431` data
+
+```{r}
+#| echo: true
+ms431 <- msleep |>
+  mutate(rem_prop = sleep_rem / sleep_total) |>
+  mutate(vore = factor(vore)) |>
+  select(name, vore, brainwt, bodywt, rem_prop, awake)
+
+glimpse(ms431)
+```
+
+## Exploring our factor variable
+
+```{r}
+#| echo: true
+ms431 |> tabyl(vore) |> adorn_pct_formatting() |> gt()
+```
+
+Any concerns here?
+
+## Collapse to three `vore` groups?
+
+```{r}
+#| echo: true
+favstats(awake ~ vore, data = ms431) |>
+  gt() |> fmt_number(columns = min:sd, decimals = 3)
+```
+
+```{r}
+#| echo: true
+#| fig-height: 3
+ggplot(ms431, aes(x = awake, y = vore)) + geom_boxplot()
+```
+
+
+
+## Exploring our quantities
+
+```{r}
+#| echo: true
+df_stats(~ brainwt + bodywt + rem_prop + awake, data = ms431) |>
+  gt() |> fmt_number(columns = min:sd, decimals = 3)
+```
+
+Any concerns here?
+
+
+
+## A `brainwt` of 0?
+
+```{r}
+#| echo: true
+which.min(ms431$brainwt)
+```
+
+```{r}
+#| echo: true
+slice(ms431, 17)
+```
+
+- How many of these mammals have a `brainwt` below 0.01 kg?
+
+```{r}
+#| echo: true
+ms431 |> filter(brainwt < 0.01) |> nrow()
+```
+
+## Collinearity Check
+
+```{r}
+#| echo: true
+vif(lm(awake ~ vore + bodywt + brainwt + rem_prop, data = ms431))
+
+cor(ms431$bodywt, ms431$brainwt, use = "complete.obs")
+```
+
+- What can we do about this?
+
+## Change our set of variables?
+
+What if we included 
+
+- `brain_prop`: brain weight as a proportion of body weight 
+
+along with `bodywt` in our model?
+
+```{r}
+#| echo: true
+ms431 <- ms431 |>
+  mutate(brain_prop = brainwt / bodywt) |>
+  select(name, vore, bodywt, brain_prop, rem_prop, awake)
+
+vif(lm(awake ~ vore + bodywt + brain_prop + rem_prop, data = ms431))
+```
+
+OK. Let's move on to think about missingness.
+
+## How much missingness do we have?
+
+```{r}
+#| echo: true
+miss_var_summary(ms431)
+miss_case_table(ms431)
+```
+
+
+## Missing Data Mechanisms {.smaller}
+
+- **Missing completely at random** There are no systematic differences between the missing values and the observed values. 
+    - For example, blood pressure measurements may be missing because of breakdown of an automatic sphygmomanometer.
+- **Missing at random** Any systematic difference between the missing and observed values can be explained by other observed data. 
+    - For example, missing BP measurements may be lower than measured BPs but only because younger people more often have a missing BP.
+- **Missing not at random** Even after the observed data are taken into account, systematic differences remain between the missing values and the observed values. 
+    - For example, people with high BP may be more likely to have headaches that cause them to miss clinic appointments.
+
+"Missing at random" is an **assumption** that justifies the analysis, rather than a property of the data.
+
+## What assumption should we use?
+
+Can we assume the data are MCAR, per Little's test?
+
+```{r}
+#| echo: true
+mcar_test(ms431)  ## naniar provides this function
+```
+
+With a small $p$ value for the $\chi^2$ test statistic, we would conclude that the `ms431` data are not MCAR.
+
+:::{.callout-tip}
+## Reference
+
+Little, Roderick J. A. 1988. "A Test of Missing Completely at Random for Multivariate Data with Missing Values." *Journal of the American Statistical Association* 83 (404): 1198–1202. [doi:10.1080/01621459.1988.10478722](https://www.tandfonline.com/doi/abs/10.1080/01621459.1988.10478722).
+:::
+
+## If not MCAR, then what?
+
+Suppose we assume that the data are MAR. This suggests the need for imputation of missing values. 
+
+:::{.callout-note}
+If we were willing to assume MCAR, we could simply do a complete case analysis.
+:::
+
+Here, we have complete data on our outcome (`awake`) and `bodywt` so we won't need to impute them. 
+
+- We will need to impute `vore` (7), `brain_prop` (27) and `rem_prop` (22) from our sample of 83 mammals. 
+- `vore` is a factor, the others are quantities.
+
+## Single Imputation
+
+We'll create a singly imputed data set first, to select our predictors.
+
+```{r}
+#| echo: true
+
+set.seed(12345)
+ms431_imp1 <- mice(ms431, m = 1, printFlag = FALSE)
+ms431_imp <- complete(ms431_imp1)
+
+prop_complete(ms431); prop_complete(ms431_imp)
+```
+
+:::{.callout-note}
+After we've settled on a final prediction model using `ms431_imp`, we'll implement multiple imputation.
+:::
+
+## Range Check for impossible values?
+
+```{r}
+#| echo: true
+ms431_imp |> tabyl(vore) |> adorn_pct_formatting() |> gt()
+
+df_stats(~ brain_prop + bodywt + rem_prop + awake, data = ms431_imp) |>
+  gt() |> fmt_number(columns = min:sd, decimals = 3)
+```
+
+## Partitioning the `ms431_imp` data
+
+- Do we have a unique name to identify each mammal?
+
+```{r}
+#| echo: true
+
+n_distinct(ms431_imp$name) == nrow(ms431_imp) # compare numbers
+near(n_distinct(ms431_imp$name), nrow(ms431_imp)) # tidyverse approach
+```
+
+- Partition 70% into training sample, remaining 30% to test, while maintaining a similar percentage by `vore` groups.
+
+```{r}
+#| echo: true
+set.seed(20231128)
+ms431_train <- slice_sample(ms431_imp, prop = 0.7, by = "vore")
+ms431_test <- anti_join(ms431_imp, ms431_train, by = "name")
+
+dim(ms431_train); dim(ms431_test)
+```
+
+## Outcome transformation?
+
+```{r}
+#| echo: true
+boxCox(lm(awake ~ vore + bodywt + brain_prop + rem_prop, data = ms431_train))
+```
+
+## Scatterplot Matrix
+
+```{r}
+#| echo: true
+ggpairs(ms431_train |> select(vore, bodywt, brain_prop, rem_prop, awake))
+```
+
+## Collinearity Check in Training Sample
+
+```{r}
+#| echo: true
+vif(lm(awake ~ vore + bodywt + brain_prop + rem_prop, data = ms431_train))
+```
+
+## Which Potential Models Will We Fit?
+
+- Model 1: A simple regression on `bodywt`
+- Model 2: A simple regression on `brain_prop`
+- Model 3: A model with the two size variables (`brain_prop` and `bodywt`)
+- Model 4: Model 3 + `vore`
+- Model 5: Model 3 + `rem_prop`
+- Model 6: All four predictors
+
+## Model 6
+
+```{r}
+#| echo: true
+m6 <- lm(awake ~ bodywt + brain_prop + vore + rem_prop, data = ms431_train)
+model_parameters(m6, ci = 0.90) |> gt()
+model_performance(m6) |> gt()
+```
+
+## Model 5
+
+```{r}
+#| echo: true
+m5 <- lm(awake ~ bodywt + brain_prop + rem_prop, data = ms431_train)
+model_parameters(m5, ci = 0.90) |> gt()
+model_performance(m5) |> gt()
+```
+
+## Model 4
+
+```{r}
+#| echo: true
+m4 <- lm(awake ~ bodywt + brain_prop + vore, data = ms431_train)
+model_parameters(m4, ci = 0.90) |> gt()
+model_performance(m4) |> gt()
+```
+
+## Model 3
+
+```{r}
+#| echo: true
+m3 <- lm(awake ~ bodywt + brain_prop, data = ms431_train)
+model_parameters(m3, ci = 0.90) |> gt()
+model_performance(m3) |> gt()
+```
+
+## Model 2
+
+```{r}
+#| echo: true
+m2 <- lm(awake ~ brain_prop, data = ms431_train)
+model_parameters(m2, ci = 0.90) |> gt()
+model_performance(m2) |> gt()
+```
+
+## Model 1
+
+```{r}
+#| echo: true
+m1 <- lm(awake ~ bodywt, data = ms431_train)
+model_parameters(m1, ci = 0.90) |> gt()
+model_performance(m1) |> gt()
+```
+
+## Combining `glance()` results
+
+```{r}
+#| echo: true
+bind_rows(glance(m1) |> mutate(name = "m1"),
+          glance(m2) |> mutate(name = "m2"),
+          glance(m3) |> mutate(name = "m3"),
+          glance(m4) |> mutate(name = "m4"),
+          glance(m5) |> mutate(name = "m5"),
+          glance(m6) |> mutate(name = "m6")) |>
+  select(name, r.squared, adj.r.squared, sigma, AIC, BIC, nobs, df) |>
+  gt() |> fmt_number(decimals = 5, columns = 2) |>
+    fmt_number(decimals = 4, columns = c(3:4)) |>
+    fmt_number(decimals = 0, columns = c(5:6)) 
+```
+
+## Compare Models
+
+```{r}
+#| echo: true
+compare_performance(m1, m2, m3, m4, m5, m6, rank = TRUE)
+```
+
+
+## Compare Models
+
+```{r}
+#| echo: true
+plot(compare_performance(m1, m2, m3, m4, m5, m6))
+```
+
+## Check Assumptions? (m1)
+
+```{r}
+#| echo: true
+check_model(m1)
+```
+
+## Check Assumptions? (m4)
+
+```{r}
+#| echo: true
+check_model(m4)
+```
+
+## Check Assumptions? (m6)
+
+```{r}
+#| echo: true
+check_model(m6)
+```
+
+## Move forward with `m1`, `m4` and `m6`
+
+```{r}
+#| echo: true
+
+test_m1 <- augment(m1, newdata = ms431_test) |> mutate(mod = "m1")
+test_m4 <- augment(m4, newdata = ms431_test) |> mutate(mod = "m4")
+test_m6 <- augment(m6, newdata = ms431_test) |> mutate(mod = "m6")
+
+test_comp <- bind_rows(test_m1, test_m4, test_m6) |>
+  arrange(name, mod)
+```
+
+## Comparing Models: Test Sample
+
+```{r}
+#| echo: true
+test_comp |>
+  group_by(mod) |>
+  summarize(n = n(),
+            MAPE = mean(abs(.resid)), 
+            RMSPE = sqrt(mean(.resid^2)),
+            max_error = max(abs(.resid)),
+            valid_R2 = cor(awake, .fitted)^2) |>
+  gt() |> fmt_number(decimals = 4, columns = -"n") 
+```
+
+I'd probably pick model `m1` or `m4`. But first I'll show what happens if we pick model `m6` instead, just because I want to show as much missingness as possible.
+
+## Model 6 (training sample)
+
+```{r}
+#| echo: true
+m6 <- lm(awake ~ bodywt + brain_prop + vore + rem_prop, data = ms431_train)
+model_parameters(m6, ci = 0.90) |> gt()
+model_performance(m6) |> gt()
+```
+
+## Create Multiple Imputations
+
+How many subjects have missing data that affect this model?
+
+```{r}
+#| echo: true
+ms431_sub <- ms431 |> select(name, awake, bodywt, brain_prop, rem_prop, vore)
+
+pct_miss_case(ms431_sub)
+```
+
+## We'll build 50 imputed data sets.
+
+```{r}
+#| echo: true
+set.seed(4312345)
+ms431_mice <- mice(ms431, m = 50, printFlag = FALSE)
+summary(ms431_mice)
+```
+
+## Run Model 6 on each imputation
+
+```{r}
+#| echo: true
+
+m6_mods <- with(ms431_mice, lm(awake ~ bodywt + brain_prop + vore + rem_prop))
+
+summary(m6_mods)
+```
+
+## Pool Results across imputations
+
+```{r}
+#| echo: true
+m6_pool <- pool(m6_mods)
+model_parameters(m6_pool, ci = 0.90)
+```
+
+## Estimate R-square and Adjusted R-square
+
+```{r}
+#| echo: true
+pool.r.squared(m6_mods)
+pool.r.squared(m6_mods, adjusted = TRUE)
+```
+
+## More Details on MI modeling
+
+```{r}
+#| echo: true
+m6_pool
+```
+
+## What if we picked model `m1`?
+
+```{r}
+#| echo: true
+
+m1_mods <- with(ms431_mice, lm(awake ~ bodywt))
+m1_pool <- pool(m1_mods)
+model_parameters(m1_pool, ci = 0.90)
+pool.r.squared(m1_mods)
+```
+
+## What if we picked model `m4`?
+
+```{r}
+#| echo: true
+
+m4_mods <- with(ms431_mice, lm(awake ~ bodywt + brain_prop + vore))
+m4_pool <- pool(m4_mods)
+model_parameters(m4_pool, ci = 0.90)
+pool.r.squared(m4_mods)
+```
+
+## Guidelines for reporting, I (Sterne) {.smaller}
+
+How should we report on analyses potentially affected by missing data?
+
+- Report the number of missing values for each variable of interest, or the number of cases with complete data for each important component of the analysis. Give reasons for missing values if possible, and indicate how many individuals were excluded because of missing data when reporting the flow of participants through the study. If possible, describe reasons for missing data in terms of other variables (rather than just reporting a universal reason such as treatment failure.)
+- Clarify whether there are important differences between individuals with complete and incomplete data, for example, by providing a table comparing the distributions of key exposure and outcome variables in these different groups
+- Describe the type of analysis used to account for missing data (e.g., multiple imputation), and the assumptions that were made (e.g., missing at random)
+
+## Guidelines for reporting, II (Sterne) {.smaller}
+
+How should we report on analyses that involve multiple imputation?
+
+- Provide details of the imputation modeling (software used, key settings, number of imputed datasets, variables included in imputation procedure, etc.)
+- If a large fraction of the data is imputed, compare observed and imputed values.
+- Where possible, provide results from analyses restricted to complete cases, for comparison with results based on multiple imputation. If there are important differences between the results, suggest explanations.
+- It is also desirable to investigate the robustness of key inferences to possible departures from the missing at random assumption, by assuming a range of missing not at random mechanisms in sensitivity analyses. 
+
+## Session Information {.smaller}
+
+```{r}
+#| echo: true
+xfun::session_info()
+```

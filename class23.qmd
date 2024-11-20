@@ -368,7 +368,7 @@ vif(t_check)
 
 # Automated Predictor Selection
 
-## Stepwise Regrssion Process
+## Stepwise Regression Process
 
 We start with a big model, including all candidate predictors.
 
